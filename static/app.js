@@ -356,6 +356,163 @@ function startOrderPolling(orderId) {
     }, 3000);
 }
 
+// ==========================================
+// 7. Xử Lý Tra Cứu Tiến Trình Đơn Hàng 5 Bước
+// ==========================================
+const btnOpenTracking = document.getElementById("btnOpenTracking");
+const btnCloseTracking = document.getElementById("btnCloseTracking");
+const trackingModal = document.getElementById("trackingModal");
+const trackingForm = document.getElementById("trackingForm");
+const trackInput = document.getElementById("trackInput");
+const trackResults = document.getElementById("trackResults");
+const btnViewOrderProgress = document.getElementById("btnViewOrderProgress");
+
+if (btnOpenTracking) {
+    btnOpenTracking.addEventListener("click", () => {
+        trackingModal.classList.remove("hidden");
+        setTimeout(() => trackInput.focus(), 100);
+    });
+}
+
+if (btnCloseTracking) {
+    btnCloseTracking.addEventListener("click", () => {
+        trackingModal.classList.add("hidden");
+    });
+}
+
+if (btnViewOrderProgress) {
+    btnViewOrderProgress.addEventListener("click", () => {
+        paymentModal.classList.add("hidden");
+        trackingModal.classList.remove("hidden");
+        if (currentOrderId) {
+            trackInput.value = currentOrderId;
+            searchOrderTracking(currentOrderId);
+        }
+    });
+}
+
+if (trackingForm) {
+    trackingForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const query = trackInput.value.trim();
+        if (query) {
+            searchOrderTracking(query);
+        }
+    });
+}
+
+async function searchOrderTracking(query) {
+    trackResults.innerHTML = `
+        <div class="text-center py-8">
+            <i class="fa-solid fa-circle-notch fa-spin text-amber-400 text-2xl mb-2"></i>
+            <p class="text-xs text-slate-300">Đang tìm kiếm đơn hàng...</p>
+        </div>
+    `;
+
+    try {
+        const res = await fetch(`/api/order/track/search?query=${encodeURIComponent(query)}`);
+        const data = await res.json();
+
+        if (!data.success || !data.orders || data.orders.length === 0) {
+            trackResults.innerHTML = `
+                <div class="text-center py-8 text-rose-400 text-xs">
+                    <i class="fa-regular fa-circle-xmark text-3xl mb-2 block"></i>
+                    ${data.message || 'Không tìm thấy đơn hàng nào phù hợp!'}
+                </div>
+            `;
+            return;
+        }
+
+        renderTrackingCards(data.orders);
+    } catch (err) {
+        trackResults.innerHTML = `
+            <div class="text-center py-8 text-rose-400 text-xs">
+                Lỗi kết nối máy chủ, vui lòng thử lại!
+            </div>
+        `;
+    }
+}
+
+function renderTrackingCards(orders) {
+    trackResults.innerHTML = orders.map(order => {
+        const currentStep = order.current_step; // 1 to 5
+
+        const steps = [
+            { num: 1, title: "Tiếp Nhận", icon: "fa-clipboard-list" },
+            { num: 2, title: "Đã Nhận Tiền", icon: "fa-money-bill-wave" },
+            { num: 3, title: "Chuẩn Bị Phôi", icon: "fa-layer-group" },
+            { num: 4, title: "Đang Khắc", icon: "fa-fire-flame-curved" },
+            { num: 5, title: "Hoàn Thành", icon: "fa-circle-check" },
+        ];
+
+        return `
+            <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg">
+                <!-- Header Đơn -->
+                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="font-extrabold text-amber-400 font-mono text-sm">${order.id}</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold">${order.created_at}</span>
+                        </div>
+                        <span class="text-xs text-slate-300 block mt-0.5">${order.customer_name || 'Khách hàng'}</span>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs font-bold text-slate-200 block">${order.material_name} (${order.width_mm}x${order.height_mm}mm)</span>
+                        <span class="text-xs font-black text-emerald-400">${formatVND(order.total_price)}</span>
+                    </div>
+                </div>
+
+                <!-- Thanh Tiến Trình 5 Bước (Progress Stepper) -->
+                <div class="py-3 px-2">
+                    <div class="flex items-center justify-between relative">
+                        <!-- Đường line nối giữa các bước -->
+                        <div class="absolute left-4 right-4 top-1/2 -translate-y-1/2 h-1 bg-slate-800 -z-0"></div>
+                        <div class="absolute left-4 top-1/2 -translate-y-1/2 h-1 bg-gradient-to-r from-emerald-500 via-amber-500 to-orange-500 transition-all duration-500 -z-0" 
+                             style="width: ${Math.max(0, Math.min(100, (currentStep - 1) * 25))}%;"></div>
+
+                        ${steps.map(s => {
+                            const isPassed = s.num < currentStep;
+                            const isCurrent = s.num === currentStep;
+                            let circleStyle = "bg-slate-800 border-slate-700 text-slate-500";
+                            let textStyle = "text-slate-500";
+
+                            if (isPassed) {
+                                circleStyle = "bg-emerald-500 border-emerald-400 text-slate-950 font-black";
+                                textStyle = "text-emerald-400 font-bold";
+                            } else if (isCurrent) {
+                                circleStyle = "bg-amber-400 border-white text-slate-950 font-black shadow-lg shadow-amber-400/30 ring-4 ring-amber-400/20";
+                                textStyle = "text-amber-300 font-extrabold";
+                            }
+
+                            return `
+                                <div class="flex flex-col items-center z-10">
+                                    <div class="w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs transition-all ${circleStyle}">
+                                        <i class="fa-solid ${s.icon}"></i>
+                                    </div>
+                                    <span class="text-[10px] mt-1.5 whitespace-nowrap text-center ${textStyle}">
+                                        ${s.title}
+                                    </span>
+                                </div>
+                            `;
+                        }).join("")}
+                    </div>
+                </div>
+
+                <!-- Banner Chi Tiết Trạng Thái Hiện Tại -->
+                <div class="p-3.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-3.5">
+                    <img src="${order.preview_url}" class="w-12 h-12 object-contain rounded-lg bg-slate-950 border border-slate-700 flex-shrink-0" alt="Preview">
+                    <div class="flex-1 min-w-0">
+                        <h5 class="text-xs font-bold text-white flex items-center gap-2">
+                            <span>${order.step_name}</span>
+                            ${currentStep === 4 ? '<span class="w-2 h-2 rounded-full bg-orange-500 animate-ping"></span>' : ''}
+                        </h5>
+                        <p class="text-[11px] text-slate-300 mt-0.5 leading-relaxed">${order.step_desc}</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join("");
+}
 
 // Tiện ích format VNĐ
 function formatVND(amount) {
@@ -364,3 +521,4 @@ function formatVND(amount) {
 
 // Khởi chạy khi load trang
 document.addEventListener("DOMContentLoaded", loadConfig);
+

@@ -82,3 +82,18 @@ def list_orders(limit: int = 50):
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+def find_orders_by_query(query: str):
+    """Tìm kiếm đơn hàng theo mã đơn hoặc số điện thoại để tra cứu tiến trình"""
+    q = query.strip()
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM orders 
+        WHERE id = ? OR customer_phone = ? OR (customer_phone != '' AND customer_phone LIKE ?)
+        ORDER BY created_at DESC LIMIT 5
+    """, (q, q, f"%{q}%"))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+

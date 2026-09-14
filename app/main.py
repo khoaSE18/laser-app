@@ -18,7 +18,10 @@ from app.config import (
     BANK_CONFIG, LASER_MACHINE, MATERIALS, LASERGRBL_CANDIDATE_PATHS,
     ADMIN_PASSWORD, ZALO_PHONE, HOTLINE, ZALO_LINK
 )
-from app.database import init_db, create_order, get_order, update_order_status, list_orders
+from app.database import (
+    init_db, create_order, get_order, update_order_status,
+    list_orders, find_orders_by_query
+)
 from app.laser_engine import (
     process_and_dither_image, generate_preview_image,
     calculate_time_and_pricing, generate_grbl_gcode
@@ -198,6 +201,74 @@ def check_order_status(order_id: str):
     if not order:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     return {"success": True, "order": order}
+
+@app.get("/api/order/track/search")
+def track_orders(query: str):
+    """
+    Tra cứu tiến trình đơn hàng theo mã đơn (LSxxxx) hoặc số điện thoại.
+    Trả về 5 bước tiến trình:
+    1: Tiếp nhận đơn
+    2: Đã nhận chuyển khoản VIB
+    3: Đang chuẩn bị phôi & file
+    4: Máy Laser đang khắc
+    5: Đã hoàn thành
+    """
+    q = query.strip()
+    if len(q) < 3:
+        raise HTTPException(status_code=400, detail="Vui lòng nhập ít nhất 3 ký tự (Số điện thoại hoặc mã đơn)")
+
+    orders = find_orders_by_query(q)
+    if not orders:
+        return {"success": False, "message": f"Không tìm thấy đơn hàng nào với từ khóa: {q}"}
+
+    step_info = []
+    for o in orders:
+        status = o["status"]
+        if status == "PENDING_PAYMENT":
+            step = 1
+            step_name = "Chờ xưởng xác nhận chuyển khoản"
+            desc = "Đơn hàng đã được tạo. Vui lòng chuyển khoản đúng cú pháp để xưởng bắt đầu gia công."
+        elif status == "PAID":
+            step = 2
+            step_name = "Xưởng đã nhận tiền (VIB) - Đang xếp hàng"
+            desc = "Thanh toán thành công! Xưởng đang chuẩn bị phôi và kiểm tra file thiết kế."
+        elif status == "ENGRAVING":
+            step = 4
+            step_name = "🔥 Máy Laser đang tiến hành khắc"
+            desc = f"Tia laser đang chạy trên phôi. Thời gian gia công dự kiến: ~{o['estimated_minutes']} phút."
+        elif status == "COMPLETED":
+            step = 5
+            step_name = "🎉 Khắc hoàn tất! Sẵn sàng bàn giao"
+            desc = "Sản phẩm đã được khắc xong đẹp mắt. Mời bạn đến xưởng nhận hàng hoặc chờ ship!"
+        elif status == "CANCELLED":
+            step = 0
+            step_name = "❌ Đơn hàng đã hủy"
+            desc = "Đơn hàng đã được hủy."
+        else:
+            step = 3
+            step_name = "🎨 Đang chuẩn bị phôi & thiết kế"
+            desc = "Kỹ thuật viên đang chuẩn bị gá phôi vào máy laser."
+
+        step_info.append({
+            "id": o["id"],
+            "created_at": o["created_at"],
+            "customer_name": o["customer_name"],
+            "customer_phone": o["customer_phone"],
+            "customer_note": o["customer_note"],
+            "material_name": o["material_name"],
+            "width_mm": o["width_mm"],
+            "height_mm": o["height_mm"],
+            "total_price": o["total_price"],
+            "status": status,
+            "current_step": step,
+            "step_name": step_name,
+            "step_desc": desc,
+            "estimated_minutes": o["estimated_minutes"],
+            "preview_url": f"/api/storage/previews/{o['id']}_preview.png"
+        })
+
+    return {"success": True, "orders": step_info}
+
 
 def verify_admin_pin(x_admin_pin: Optional[str] = Header(None)):
     """Kiểm tra mã PIN bảo vệ trang quản trị xưởng"""
