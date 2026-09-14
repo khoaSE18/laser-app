@@ -49,6 +49,22 @@ const paymentWaitingBox = document.getElementById("paymentWaitingBox");
 const paymentSuccessBox = document.getElementById("paymentSuccessBox");
 let orderPollTimer = null;
 
+// Tùy chọn Hỗ trợ thiết kế
+const needDesignCheck = document.getElementById("needDesignCheck");
+const designFields = document.getElementById("designFields");
+const customerPhone = document.getElementById("customerPhone");
+const customerNote = document.getElementById("customerNote");
+
+if (needDesignCheck) {
+    needDesignCheck.addEventListener("change", () => {
+        designFields.classList.toggle("hidden", !needDesignCheck.checked);
+        if (needDesignCheck.checked) {
+            customerPhone.focus();
+        }
+    });
+}
+
+
 
 // 1. Tải cấu hình hệ thống từ API
 async function loadConfig() {
@@ -248,6 +264,17 @@ btnCheckout.addEventListener("click", async () => {
     const w = parseFloat(widthInput.value) || 100;
     const h = parseFloat(heightInput.value) || 100;
     const mode = document.querySelector('input[name="engraveMode"]:checked').value;
+    const needDesign = needDesignCheck ? needDesignCheck.checked : false;
+    const phone = customerPhone ? customerPhone.value.trim() : "";
+    const note = customerNote ? customerNote.value.trim() : "";
+
+    if (needDesign && !phone) {
+        alert("Quý khách vui lòng nhập Số điện thoại / Zalo để xưởng gửi bản demo duyệt trước khi khắc nhé!");
+        customerPhone.focus();
+        btnCheckout.disabled = false;
+        btnCheckout.innerHTML = `<i class="fa-solid fa-qrcode text-base"></i> ĐẶT HÀNG & QUÉT MÃ VIETQR`;
+        return;
+    }
 
     const formData = new FormData();
     formData.append("image", currentFile);
@@ -255,7 +282,11 @@ btnCheckout.addEventListener("click", async () => {
     formData.append("height_mm", h);
     formData.append("material", selectedMaterial);
     formData.append("mode", mode);
-    formData.append("customer_name", "Khách hàng Web");
+    formData.append("customer_name", phone ? `Khách ${phone}` : "Khách hàng Web");
+    formData.append("customer_phone", phone);
+    formData.append("customer_note", note);
+    formData.append("need_design", needDesign ? "true" : "false");
+
 
     try {
         const res = await fetch("/api/order", {

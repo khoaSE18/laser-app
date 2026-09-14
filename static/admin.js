@@ -144,7 +144,25 @@ function renderOrders(orders) {
                     <span class="font-bold text-amber-400 font-mono text-sm block">${order.id}</span>
                     <span class="text-[11px] text-slate-400">${order.created_at}</span>
                     <span class="text-[11px] text-slate-300 font-medium block mt-0.5">${order.customer_name || 'Khách Web'}</span>
+                    
+                    <!-- Hiển thị nút chat Zalo nếu khách có để lại số điện thoại -->
+                    ${order.customer_phone ? `
+                        <a href="https://zalo.me/${order.customer_phone}" target="_blank" class="inline-flex items-center gap-1 text-[11px] text-blue-400 font-bold hover:underline mt-1 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                            <i class="fa-solid fa-comment-dots text-[10px]"></i> Zalo: ${order.customer_phone}
+                        </a>
+                    ` : ''}
+
+                    <!-- Nhãn yêu cầu thiết kế -->
+                    ${order.customer_note && order.customer_note.includes('[CẦN THIẾT KẾ]') ? `
+                        <span class="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-purple-500/20 text-purple-300 border border-purple-500/30 block w-fit">
+                            🎨 CẦN TƯ VẤN THIẾT KẾ
+                        </span>
+                        <p class="text-[11px] text-amber-200/90 italic mt-0.5 bg-slate-950/60 p-1.5 rounded border border-slate-800">
+                            ${order.customer_note.replace('[CẦN THIẾT KẾ]', '').trim() || 'Khách nhờ tách nền/chỉnh sửa'}
+                        </p>
+                    ` : (order.customer_note ? `<p class="text-[10px] text-slate-400 italic mt-0.5">${order.customer_note}</p>` : '')}
                 </td>
+
 
                 <!-- Ảnh Thumbnail -->
                 <td class="py-3.5 px-4">

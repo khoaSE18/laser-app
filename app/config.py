@@ -21,6 +21,12 @@ BANK_CONFIG = {
 # Mật khẩu quản trị xưởng (/admin)
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "khoa2026")
 
+# Thông tin liên hệ & Hỗ trợ tư vấn thiết kế Zalo
+ZALO_PHONE = "0352445940"
+HOTLINE = "0352 445 940"
+ZALO_LINK = f"https://zalo.me/{ZALO_PHONE}"
+
+
 
 
 # Cấu hình máy Laser & Bo MKS DLC32

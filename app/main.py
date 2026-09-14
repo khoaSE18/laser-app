@@ -16,7 +16,7 @@ from PIL import Image
 from app.config import (
     BASE_DIR, UPLOAD_DIR, GCODE_DIR, PREVIEW_DIR,
     BANK_CONFIG, LASER_MACHINE, MATERIALS, LASERGRBL_CANDIDATE_PATHS,
-    ADMIN_PASSWORD
+    ADMIN_PASSWORD, ZALO_PHONE, HOTLINE, ZALO_LINK
 )
 from app.database import init_db, create_order, get_order, update_order_status, list_orders
 from app.laser_engine import (
@@ -50,15 +50,21 @@ def find_lasergrbl_path() -> Optional[str]:
 
 @app.get("/api/config")
 def get_system_config():
-    """Lấy danh sách vật liệu, thông số máy và thông tin chuyển khoản"""
+    """Lấy danh sách vật liệu, thông số máy, thông tin chuyển khoản và hỗ trợ Zalo"""
     return {
         "materials": MATERIALS,
         "machine": {
             "max_width_mm": LASER_MACHINE["max_width_mm"],
             "max_height_mm": LASER_MACHINE["max_height_mm"]
         },
-        "bank": BANK_CONFIG
+        "bank": BANK_CONFIG,
+        "support": {
+            "zalo": ZALO_PHONE,
+            "hotline": HOTLINE,
+            "zalo_link": ZALO_LINK
+        }
     }
+
 
 @app.post("/api/preview")
 async def generate_preview(
@@ -112,7 +118,8 @@ async def create_new_order(
     mode: str = Form("photo"),
     customer_name: str = Form("Khách hàng"),
     customer_phone: str = Form(""),
-    customer_note: str = Form("")
+    customer_note: str = Form(""),
+    need_design: bool = Form(False)
 ):
     """
     Tạo đơn hàng mới, sinh file G-code .NC chuẩn cho LaserGRBL, tạo mã VietQR
@@ -120,6 +127,9 @@ async def create_new_order(
     order_id = f"LS{datetime.now().strftime('%y%m%d%H%M%S')}"
     contents = await image.read()
     pil_img = Image.open(io.BytesIO(contents))
+
+    # Ghi chú kèm yêu cầu thiết kế
+    final_note = f"[CẦN THIẾT KẾ] {customer_note}".strip() if need_design else customer_note.strip()
 
     # 1. Lưu ảnh gốc
     orig_ext = os.path.splitext(image.filename)[1] or ".png"
@@ -155,7 +165,8 @@ async def create_new_order(
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "customer_name": customer_name,
         "customer_phone": customer_phone,
-        "customer_note": customer_note,
+        "customer_note": final_note,
+
         "original_filename": image.filename,
         "image_path": orig_save_path,
         "preview_path": preview_save_path,

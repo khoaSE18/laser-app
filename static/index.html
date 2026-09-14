@@ -149,7 +149,36 @@
                     </div>
                 </div>
 
+                <!-- 5. Tùy chọn Hỗ Trợ Thiết Kế & Tư Vấn -->
+                <div class="bg-gradient-to-r from-blue-950/40 to-slate-800/60 border border-blue-500/30 rounded-2xl p-5 shadow-xl space-y-3">
+                    <label class="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" id="needDesignCheck" class="mt-1 rounded bg-slate-900 border-slate-600 text-blue-500 focus:ring-0 w-4 h-4">
+                        <div>
+                            <span class="text-xs font-bold text-blue-300 flex items-center gap-1.5">
+                                <i class="fa-solid fa-wand-magic-sparkles text-amber-400"></i> Tôi chưa biết thiết kế - Nhờ xưởng hỗ trợ chỉnh sửa ảnh giúp
+                            </span>
+                            <span class="text-[11px] text-slate-400 block mt-0.5">Xưởng sẽ tách nền ảnh, thêm tên/ngày kỷ niệm, làm nét ảnh và gửi duyệt trước khi khắc.</span>
+                        </div>
+                    </label>
+
+                    <div id="designFields" class="hidden pt-3 border-t border-slate-700/60 space-y-3">
+                        <div>
+                            <label class="text-[11px] font-semibold text-slate-300 block mb-1">
+                                Số điện thoại / Zalo của bạn <span class="text-rose-400">*</span>
+                            </label>
+                            <input type="tel" id="customerPhone" placeholder="Ví dụ: 0352445940..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-400">
+                        </div>
+                        <div>
+                            <label class="text-[11px] font-semibold text-slate-300 block mb-1">
+                                Yêu cầu thiết kế cụ thể
+                            </label>
+                            <textarea id="customerNote" rows="2" placeholder="Ví dụ: Xóa phông nền giúp mình, khắc thêm chữ: Chúc mừng sinh nhật..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-400"></textarea>
+                        </div>
+                    </div>
+                </div>
+
             </div>
+
 
             <!-- Cột phải: Live Preview, Báo Giá & Đặt Hàng -->
             <div class="lg:col-span-5 space-y-6">
@@ -288,7 +317,22 @@
     </div>
 
 
+    <!-- Nút Chat Zalo Nổi Rung Lắc -->
+    <a href="https://zalo.me/0352445940" target="_blank" rel="noopener noreferrer" class="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 bg-gradient-to-r from-[#0068FF] to-[#0052cc] text-white px-4 py-3 rounded-full shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 group border border-blue-400/40" title="Chat Zalo tư vấn thiết kế">
+        <div class="relative flex items-center justify-center">
+            <span class="absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75 animate-ping"></span>
+            <div class="relative w-8 h-8 rounded-full bg-white flex items-center justify-center text-[#0068FF] font-black text-sm shadow">
+                <i class="fa-solid fa-comment-dots"></i>
+            </div>
+        </div>
+        <div class="text-left pr-1">
+            <span class="text-[10px] uppercase font-bold text-blue-200 block leading-tight">Cần tư vấn?</span>
+            <span class="text-xs font-extrabold text-white tracking-wide">Chat Zalo: 0352 445 940</span>
+        </div>
+    </a>
+
     <!-- Script App -->
     <script src="/static/app.js"></script>
 </body>
 </html>
+
