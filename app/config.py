@@ -10,13 +10,14 @@ PREVIEW_DIR = os.path.join(STORAGE_DIR, "previews")
 for folder in [STORAGE_DIR, UPLOAD_DIR, GCODE_DIR, PREVIEW_DIR]:
     os.makedirs(folder, exist_ok=True)
 
-# Thông tin thanh toán VietQR (Mẫu - bạn có thể đổi thành STK thật của bạn)
+# Thông tin thanh toán VietQR (Tài khoản thật của bạn)
 BANK_CONFIG = {
-    "bank_id": "MB",              # Mã ngân hàng (MB, VCB, TCB, ACB, TPB, VPB,...)
-    "account_no": "0987654321",   # Số tài khoản ngân hàng
-    "account_name": "NGUYEN VAN A", # Tên chủ tài khoản
-    "template": "compact2",       # Mẫu VietQR: compact, compact2, qr_only
+    "bank_id": "VIB",                  # Ngân hàng Quốc Tế VIB
+    "account_no": "352445940",         # Số tài khoản
+    "account_name": "HOANG TUAN KHOA", # Tên chủ tài khoản
+    "template": "compact2",           # Mẫu VietQR chuẩn Napas247
 }
+
 
 # Cấu hình máy Laser & Bo MKS DLC32
 LASER_MACHINE = {
