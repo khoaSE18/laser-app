@@ -18,6 +18,10 @@ BANK_CONFIG = {
     "template": "compact2",           # Mẫu VietQR chuẩn Napas247
 }
 
+# Mật khẩu quản trị xưởng (/admin)
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "khoa2026")
+
+
 
 # Cấu hình máy Laser & Bo MKS DLC32
 LASER_MACHINE = {

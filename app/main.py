@@ -7,7 +7,7 @@ import subprocess
 from datetime import datetime
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +15,8 @@ from PIL import Image
 
 from app.config import (
     BASE_DIR, UPLOAD_DIR, GCODE_DIR, PREVIEW_DIR,
-    BANK_CONFIG, LASER_MACHINE, MATERIALS, LASERGRBL_CANDIDATE_PATHS
+    BANK_CONFIG, LASER_MACHINE, MATERIALS, LASERGRBL_CANDIDATE_PATHS,
+    ADMIN_PASSWORD
 )
 from app.database import init_db, create_order, get_order, update_order_status, list_orders
 from app.laser_engine import (
@@ -187,29 +188,43 @@ def check_order_status(order_id: str):
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     return {"success": True, "order": order}
 
-@app.post("/api/order/{order_id}/confirm-payment")
-def confirm_payment(order_id: str):
-    """Xác nhận đã thanh toán đơn hàng (giả lập hoặc từ Webhook ngân hàng)"""
+def verify_admin_pin(x_admin_pin: Optional[str] = Header(None)):
+    """Kiểm tra mã PIN bảo vệ trang quản trị xưởng"""
+    if not x_admin_pin or x_admin_pin != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Mã PIN quản trị không chính xác!")
+    return True
+
+@app.post("/api/admin/login")
+def admin_login(pin: str = Form(...)):
+    """Xác thực mã PIN đăng nhập quản trị"""
+    if pin == ADMIN_PASSWORD:
+        return {"success": True, "message": "Đăng nhập thành công!"}
+    raise HTTPException(status_code=401, detail="Mã PIN không đúng! Vui lòng thử lại.")
+
+@app.post("/api/admin/orders/{order_id}/confirm-payment")
+def admin_confirm_payment(order_id: str, authenticated: bool = Depends(verify_admin_pin)):
+    """Xác nhận đã nhận tiền (chỉ nhân viên xưởng có PIN mới được bấm)"""
     order = get_order(order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     updated = update_order_status(order_id, "PAID")
-    return {"success": True, "order": updated}
+    return {"success": True, "order": updated, "message": f"Đã duyệt thanh toán thành công cho đơn {order_id}!"}
 
 @app.get("/api/admin/orders")
-def get_all_orders():
-    """Lấy danh sách tất cả đơn hàng cho xưởng quản lý"""
+def get_all_orders(authenticated: bool = Depends(verify_admin_pin)):
+    """Lấy danh sách tất cả đơn hàng cho xưởng quản lý (yêu cầu mã PIN)"""
     orders = list_orders(limit=100)
     return {"success": True, "orders": orders}
 
 @app.post("/api/admin/orders/{order_id}/status")
-def change_order_status(order_id: str, status: str = Form(...)):
-    """Cập nhật trạng thái đơn hàng (PAID, ENGRAVING, COMPLETED, CANCELLED)"""
+def change_order_status(order_id: str, status: str = Form(...), authenticated: bool = Depends(verify_admin_pin)):
+    """Cập nhật trạng thái đơn hàng (yêu cầu mã PIN)"""
     updated = update_order_status(order_id, status)
     return {"success": True, "order": updated}
 
 @app.post("/api/admin/orders/{order_id}/open-lasergrbl")
-def open_in_lasergrbl(order_id: str):
+def open_in_lasergrbl(order_id: str, authenticated: bool = Depends(verify_admin_pin)):
+
     """
     Mở file G-code của đơn hàng trực tiếp bằng phần mềm LaserGRBL trên máy tính
     """

@@ -45,7 +45,10 @@ const bankAccount = document.getElementById("bankAccount");
 const bankOwner = document.getElementById("bankOwner");
 const modalAmount = document.getElementById("modalAmount");
 const modalTransferContent = document.getElementById("modalTransferContent");
-const btnConfirmPaid = document.getElementById("btnConfirmPaid");
+const paymentWaitingBox = document.getElementById("paymentWaitingBox");
+const paymentSuccessBox = document.getElementById("paymentSuccessBox");
+let orderPollTimer = null;
+
 
 // 1. Tải cấu hình hệ thống từ API
 async function loadConfig() {
@@ -273,8 +276,9 @@ btnCheckout.addEventListener("click", async () => {
             modalAmount.textContent = formatVND(data.pricing.total_price);
             modalTransferContent.textContent = currentOrderId;
 
-            // Mở Modal
+            // Mở Modal & Bắt đầu kiểm tra trạng thái duyệt tiền từ xưởng
             paymentModal.classList.remove("hidden");
+            startOrderPolling(currentOrderId);
         } else {
             alert("Không thể tạo đơn hàng, vui lòng thử lại!");
         }
@@ -290,32 +294,37 @@ btnCheckout.addEventListener("click", async () => {
 // Đóng Modal
 btnCloseModal.addEventListener("click", () => {
     paymentModal.classList.add("hidden");
-});
-
-// Xác nhận đã chuyển khoản
-btnConfirmPaid.addEventListener("click", async () => {
-    if (!currentOrderId) return;
-
-    btnConfirmPaid.disabled = true;
-    btnConfirmPaid.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Đang kiểm tra...`;
-
-    try {
-        const res = await fetch(`/api/order/${currentOrderId}/confirm-payment`, {
-            method: "POST"
-        });
-        const data = await res.json();
-
-        if (data.success) {
-            paymentModal.classList.add("hidden");
-            alert(`🎉 Cảm ơn bạn! Đơn hàng [${currentOrderId}] đã được xác nhận.\nFile G-code đã được tự động nạp sẵn vào hệ thống máy laser tại xưởng!`);
-        }
-    } catch (err) {
-        console.error("Lỗi xác nhận thanh toán:", err);
-    } finally {
-        btnConfirmPaid.disabled = false;
-        btnConfirmPaid.innerHTML = `<i class="fa-solid fa-circle-check"></i> Tôi Đã Chuyển Khoản Thành Công`;
+    if (orderPollTimer) {
+        clearInterval(orderPollTimer);
+        orderPollTimer = null;
     }
 });
+
+// Tự động kiểm tra xem xưởng đã bấm xác nhận nhận tiền chưa (3 giây/lần)
+function startOrderPolling(orderId) {
+    if (orderPollTimer) clearInterval(orderPollTimer);
+    paymentWaitingBox.classList.remove("hidden");
+    paymentSuccessBox.classList.add("hidden");
+
+    orderPollTimer = setInterval(async () => {
+        try {
+            const res = await fetch(`/api/order/${orderId}`);
+            const data = await res.json();
+            if (data.success && data.order) {
+                const status = data.order.status;
+                if (status === "PAID" || status === "ENGRAVING" || status === "COMPLETED") {
+                    clearInterval(orderPollTimer);
+                    orderPollTimer = null;
+                    paymentWaitingBox.classList.add("hidden");
+                    paymentSuccessBox.classList.remove("hidden");
+                }
+            }
+        } catch (e) {
+            console.error("Lỗi kiểm tra trạng thái đơn:", e);
+        }
+    }, 3000);
+}
+
 
 // Tiện ích format VNĐ
 function formatVND(amount) {
