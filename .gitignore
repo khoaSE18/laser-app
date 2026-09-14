@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+storage/*.db
+storage/uploads/*
+!storage/uploads/.gitkeep
+storage/gcodes/*
+!storage/gcodes/.gitkeep
+storage/previews/*
+!storage/previews/.gitkeep
+.env
+.DS_Store

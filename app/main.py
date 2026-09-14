@@ -1,0 +1,292 @@
+import os
+import io
+import time
+import base64
+import shutil
+import subprocess
+from datetime import datetime
+from typing import Optional
+
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image
+
+from app.config import (
+    BASE_DIR, UPLOAD_DIR, GCODE_DIR, PREVIEW_DIR,
+    BANK_CONFIG, LASER_MACHINE, MATERIALS, LASERGRBL_CANDIDATE_PATHS
+)
+from app.database import init_db, create_order, get_order, update_order_status, list_orders
+from app.laser_engine import (
+    process_and_dither_image, generate_preview_image,
+    calculate_time_and_pricing, generate_grbl_gcode
+)
+
+# Khởi tạo DB khi chạy
+init_db()
+
+app = FastAPI(title="Laser Web-to-Print API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+def find_lasergrbl_path() -> Optional[str]:
+    """Tìm đường dẫn thực thi của LaserGRBL trên máy tính"""
+    for p in LASERGRBL_CANDIDATE_PATHS:
+        if os.path.exists(p):
+            return p
+    # Kiểm tra lệnh trong PATH
+    which_path = shutil.which("LaserGRBL") or shutil.which("LaserGRBL.exe")
+    if which_path and os.path.exists(which_path):
+        return which_path
+    return None
+
+@app.get("/api/config")
+def get_system_config():
+    """Lấy danh sách vật liệu, thông số máy và thông tin chuyển khoản"""
+    return {
+        "materials": MATERIALS,
+        "machine": {
+            "max_width_mm": LASER_MACHINE["max_width_mm"],
+            "max_height_mm": LASER_MACHINE["max_height_mm"]
+        },
+        "bank": BANK_CONFIG
+    }
+
+@app.post("/api/preview")
+async def generate_preview(
+    image: UploadFile = File(...),
+    width_mm: float = Form(100.0),
+    height_mm: float = Form(100.0),
+    material: str = Form("wood_plywood"),
+    mode: str = Form("photo")
+):
+    """
+    API xem trước mô phỏng: Nhận ảnh từ người dùng -> Dither -> Tạo ảnh vết cháy -> Tính giá
+    """
+    if width_mm > LASER_MACHINE["max_width_mm"] or height_mm > LASER_MACHINE["max_height_mm"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Kích thước vượt quá vùng làm việc của máy ({LASER_MACHINE['max_width_mm']}x{LASER_MACHINE['max_height_mm']} mm)"
+        )
+
+    try:
+        contents = await image.read()
+        pil_img = Image.open(io.BytesIO(contents))
+
+        # 1. Dithering xử lý ảnh
+        _, dithered_img = process_and_dither_image(pil_img, width_mm, height_mm, mode=mode)
+
+        # 2. Tạo ảnh mô phỏng vết cháy trên bề mặt vật liệu
+        preview_img = generate_preview_image(dithered_img, material)
+
+        # 3. Tính toán thời gian & giá tiền
+        pricing = calculate_time_and_pricing(dithered_img, width_mm, height_mm, material)
+
+        # 4. Chuyển ảnh preview thành Base64 Data URL để gửi về frontend
+        buf = io.BytesIO()
+        preview_img.save(buf, format="PNG")
+        preview_b64 = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode('utf-8')
+
+        return {
+            "success": True,
+            "preview_image": preview_b64,
+            "pricing": pricing
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi xử lý ảnh: {str(e)}")
+
+@app.post("/api/order")
+async def create_new_order(
+    image: UploadFile = File(...),
+    width_mm: float = Form(100.0),
+    height_mm: float = Form(100.0),
+    material: str = Form("wood_plywood"),
+    mode: str = Form("photo"),
+    customer_name: str = Form("Khách hàng"),
+    customer_phone: str = Form(""),
+    customer_note: str = Form("")
+):
+    """
+    Tạo đơn hàng mới, sinh file G-code .NC chuẩn cho LaserGRBL, tạo mã VietQR
+    """
+    order_id = f"LS{datetime.now().strftime('%y%m%d%H%M%S')}"
+    contents = await image.read()
+    pil_img = Image.open(io.BytesIO(contents))
+
+    # 1. Lưu ảnh gốc
+    orig_ext = os.path.splitext(image.filename)[1] or ".png"
+    orig_save_path = os.path.join(UPLOAD_DIR, f"{order_id}_orig{orig_ext}")
+    with open(orig_save_path, "wb") as f:
+        f.write(contents)
+
+    # 2. Xử lý Dithering
+    _, dithered_img = process_and_dither_image(pil_img, width_mm, height_mm, mode=mode)
+
+    # 3. Lưu ảnh preview
+    preview_save_path = os.path.join(PREVIEW_DIR, f"{order_id}_preview.png")
+    preview_img = generate_preview_image(dithered_img, material)
+    preview_img.save(preview_save_path, "PNG")
+
+    # 4. Sinh file G-code (.NC) tối ưu cho bo MKS DLC32
+    gcode_save_path = os.path.join(GCODE_DIR, f"{order_id}.nc")
+    generate_grbl_gcode(dithered_img, width_mm, height_mm, material, gcode_save_path)
+
+    # 5. Tính giá
+    pricing = calculate_time_and_pricing(dithered_img, width_mm, height_mm, material)
+
+    # 6. Tạo đường link VietQR Napas247 động
+    # Format: https://img.vietqr.io/image/<BANK_ID>-<ACCOUNT_NO>-<TEMPLATE>.png?amount=<AMOUNT>&addInfo=<ORDER_ID>&accountName=<NAME>
+    vietqr_url = (
+        f"https://img.vietqr.io/image/{BANK_CONFIG['bank_id']}-{BANK_CONFIG['account_no']}-{BANK_CONFIG['template']}.png"
+        f"?amount={pricing['total_price']}&addInfo={order_id}&accountName={BANK_CONFIG['account_name']}"
+    )
+
+    # 7. Lưu đơn vào Database
+    order_record = {
+        "id": order_id,
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "customer_name": customer_name,
+        "customer_phone": customer_phone,
+        "customer_note": customer_note,
+        "original_filename": image.filename,
+        "image_path": orig_save_path,
+        "preview_path": preview_save_path,
+        "gcode_path": gcode_save_path,
+        "width_mm": width_mm,
+        "height_mm": height_mm,
+        "material_key": material,
+        "material_name": pricing["material_name"],
+        "mode": mode,
+        "estimated_minutes": pricing["estimated_minutes"],
+        "total_price": pricing["total_price"],
+        "status": "PENDING_PAYMENT",
+        "payment_ref": order_id
+    }
+    create_order(order_record)
+
+    return {
+        "success": True,
+        "order": order_record,
+        "pricing": pricing,
+        "vietqr_url": vietqr_url,
+        "bank_info": BANK_CONFIG
+    }
+
+@app.get("/api/order/{order_id}")
+def check_order_status(order_id: str):
+    """Kiểm tra trạng thái đơn hàng"""
+    order = get_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+    return {"success": True, "order": order}
+
+@app.post("/api/order/{order_id}/confirm-payment")
+def confirm_payment(order_id: str):
+    """Xác nhận đã thanh toán đơn hàng (giả lập hoặc từ Webhook ngân hàng)"""
+    order = get_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+    updated = update_order_status(order_id, "PAID")
+    return {"success": True, "order": updated}
+
+@app.get("/api/admin/orders")
+def get_all_orders():
+    """Lấy danh sách tất cả đơn hàng cho xưởng quản lý"""
+    orders = list_orders(limit=100)
+    return {"success": True, "orders": orders}
+
+@app.post("/api/admin/orders/{order_id}/status")
+def change_order_status(order_id: str, status: str = Form(...)):
+    """Cập nhật trạng thái đơn hàng (PAID, ENGRAVING, COMPLETED, CANCELLED)"""
+    updated = update_order_status(order_id, status)
+    return {"success": True, "order": updated}
+
+@app.post("/api/admin/orders/{order_id}/open-lasergrbl")
+def open_in_lasergrbl(order_id: str):
+    """
+    Mở file G-code của đơn hàng trực tiếp bằng phần mềm LaserGRBL trên máy tính
+    """
+    order = get_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+
+    gcode_path = order["gcode_path"]
+    if not os.path.exists(gcode_path):
+        raise HTTPException(status_code=404, detail="Không tìm thấy file G-code")
+
+    lasergrbl_bin = find_lasergrbl_path()
+
+    try:
+        if lasergrbl_bin and os.path.exists(lasergrbl_bin):
+            subprocess.Popen([lasergrbl_bin, gcode_path])
+            return {
+                "success": True,
+                "message": f"Đã khởi chạy LaserGRBL và mở file: {os.path.basename(gcode_path)}",
+                "lasergrbl_path": lasergrbl_bin
+            }
+        else:
+            # Nếu chạy trên máy tính Windows nội bộ
+            if hasattr(os, "startfile"):
+                try:
+                    os.startfile(gcode_path)
+                    return {
+                        "success": True,
+                        "message": f"Đã mở file qua ứng dụng mặc định của hệ thống: {os.path.basename(gcode_path)}"
+                    }
+                except Exception:
+                    pass
+
+            # Nếu chạy trên Cloud (Linux)
+            return {
+                "success": True,
+                "cloud_mode": True,
+                "download_url": f"/api/admin/orders/{order_id}/download-gcode",
+                "filename": f"{order_id}.nc",
+                "message": f"Đang tự động tải file {order_id}.nc về máy tính của bạn.\nBạn chỉ cần nhấp mở file là LaserGRBL sẽ tự động nạp sẵn để khắc!"
+            }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi mở LaserGRBL: {str(e)}")
+
+@app.get("/api/admin/orders/{order_id}/download-gcode")
+def download_gcode(order_id: str):
+    """Tải file .NC về máy để chép vào thẻ nhớ MicroSD MKS DLC32"""
+    order = get_order(order_id)
+    if not order or not os.path.exists(order["gcode_path"]):
+        raise HTTPException(status_code=404, detail="File G-code không tồn tại")
+    return FileResponse(
+        order["gcode_path"],
+        media_type="application/x-gcode",
+        filename=f"{order_id}.nc"
+    )
+
+@app.get("/api/storage/{subfolder}/{filename}")
+def serve_storage_file(subfolder: str, filename: str):
+    """Xem ảnh upload / preview đã lưu"""
+    allowed_folders = ["uploads", "previews"]
+    if subfolder not in allowed_folders:
+        raise HTTPException(status_code=403, detail="Thư mục không hợp lệ")
+    file_path = os.path.join(STORAGE_DIR, subfolder, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File không tồn tại")
+    return FileResponse(file_path)
+
+# Giao diện tĩnh
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+if os.path.exists(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+@app.get("/")
+def serve_index():
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+@app.get("/admin")
+def serve_admin():
+    return FileResponse(os.path.join(STATIC_DIR, "admin.html"))

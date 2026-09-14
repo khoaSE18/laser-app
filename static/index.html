@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Khắc Laser Theo Yêu Cầu - Báo Giá & Khắc Tự Động</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-40">
+        <div class="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/20">
+                    <i class="fa-solid fa-fire-flame-curved text-slate-950 text-xl font-bold"></i>
+                </div>
+                <div>
+                    <h1 class="text-base sm:text-lg font-extrabold tracking-tight text-white flex items-center gap-2">
+                        LASER STUDIO
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">Tự Động 100%</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Tải ảnh • Báo giá tức thì • Khắc laser công nghệ cao</p>
+                </div>
+            </div>
+            <a href="/admin" class="text-xs font-semibold text-slate-400 hover:text-white px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 transition-all flex items-center gap-1.5">
+                <i class="fa-solid fa-gear"></i> Quản lý xưởng
+            </a>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-5xl mx-auto px-4 py-6 flex-1 w-full">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+
+            <!-- Cột trái: Tùy chỉnh (Inputs & Options) -->
+            <div class="lg:col-span-7 space-y-6">
+
+                <!-- 1. Khung Upload Ảnh -->
+                <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-xl">
+                    <label class="block text-sm font-bold text-slate-200 mb-3 flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 text-xs flex items-center justify-center font-bold">1</span>
+                        Tải ảnh bạn muốn khắc
+                    </label>
+
+                    <div id="dropZone" class="border-2 border-dashed border-slate-600 hover:border-amber-500/60 bg-slate-900/50 hover:bg-slate-800/40 rounded-xl p-6 text-center cursor-pointer transition-all duration-200 relative group">
+                        <input type="file" id="imageInput" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">
+                        <div id="uploadPlaceholder" class="space-y-3">
+                            <div class="w-14 h-14 mx-auto rounded-full bg-slate-800 flex items-center justify-center text-amber-400 text-2xl group-hover:scale-110 transition-transform">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-slate-200">Chạm để chọn ảnh hoặc kéo thả vào đây</p>
+                                <p class="text-xs text-slate-400 mt-1">Hỗ trợ JPG, PNG, WEBP (Tối đa 15MB)</p>
+                            </div>
+                        </div>
+
+                        <!-- Thumbnail khi đã chọn ảnh -->
+                        <div id="uploadPreviewBox" class="hidden flex items-center gap-4 text-left">
+                            <img id="thumbImg" class="w-16 h-16 object-cover rounded-lg border border-slate-700 bg-slate-950">
+                            <div class="flex-1 min-w-0">
+                                <p id="fileName" class="text-sm font-semibold text-slate-200 truncate">ten-anh.jpg</p>
+                                <p id="fileResolution" class="text-xs text-slate-400 mt-0.5">800 x 600 px</p>
+                                <span class="inline-block text-[11px] text-amber-400 font-medium mt-1 cursor-pointer hover:underline">
+                                    <i class="fa-solid fa-arrows-rotate mr-1"></i>Đổi ảnh khác
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Kích thước & Tỉ lệ -->
+                <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-xl space-y-4">
+                    <label class="block text-sm font-bold text-slate-200 flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 text-xs flex items-center justify-center font-bold">2</span>
+                        Kích thước sản phẩm (Millimeter)
+                    </label>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <span class="text-xs text-slate-400 mb-1.5 block font-medium">Chiều rộng (mm)</span>
+                            <div class="relative">
+                                <input type="number" id="widthInput" value="100" min="10" max="400" step="5" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white font-semibold focus:outline-none focus:border-amber-500 transition-colors">
+                                <span class="absolute right-3 top-2.5 text-xs text-slate-500">mm</span>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="text-xs text-slate-400 mb-1.5 block font-medium">Chiều cao (mm)</span>
+                            <div class="relative">
+                                <input type="number" id="heightInput" value="100" min="10" max="400" step="5" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white font-semibold focus:outline-none focus:border-amber-500 transition-colors">
+                                <span class="absolute right-3 top-2.5 text-xs text-slate-500">mm</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-1">
+                        <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                            <input type="checkbox" id="lockAspect" checked class="rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-0">
+                            <span>Khóa tỉ lệ khung hình gốc của ảnh</span>
+                        </label>
+                        <span id="dimensionCm" class="text-xs text-amber-400 font-medium">10 x 10 cm (100 cm²)</span>
+                    </div>
+                </div>
+
+                <!-- 3. Chọn chất liệu phôi -->
+                <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-xl space-y-3">
+                    <label class="block text-sm font-bold text-slate-200 flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 text-xs flex items-center justify-center font-bold">3</span>
+                        Chọn chất liệu phôi
+                    </label>
+
+                    <div id="materialGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <!-- Tự động load từ API config -->
+                    </div>
+                </div>
+
+                <!-- 4. Kiểu khắc -->
+                <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-xl space-y-3">
+                    <label class="block text-sm font-bold text-slate-200 flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 text-xs flex items-center justify-center font-bold">4</span>
+                        Chế độ khắc Laser
+                    </label>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="border border-slate-700 rounded-xl p-3.5 flex items-start gap-3 cursor-pointer hover:border-amber-500/50 has-[:checked]:border-amber-500 has-[:checked]:bg-amber-500/5 transition-all">
+                            <input type="radio" name="engraveMode" value="photo" checked class="mt-1 text-amber-500 focus:ring-0">
+                            <div>
+                                <span class="text-xs font-bold text-white block">Khắc Ảnh (Dithering)</span>
+                                <span class="text-[11px] text-slate-400">Dành cho ảnh chân dung, phong cảnh, có mảng sáng tối tự nhiên.</span>
+                            </div>
+                        </label>
+                        <label class="border border-slate-700 rounded-xl p-3.5 flex items-start gap-3 cursor-pointer hover:border-amber-500/50 has-[:checked]:border-amber-500 has-[:checked]:bg-amber-500/5 transition-all">
+                            <input type="radio" name="engraveMode" value="vector" class="mt-1 text-amber-500 focus:ring-0">
+                            <div>
+                                <span class="text-xs font-bold text-white block">Khắc Nét Logo / Chữ</span>
+                                <span class="text-[11px] text-slate-400">Đen trắng tương phản cao, nét chữ hoặc icon đồ họa sắc bén.</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Cột phải: Live Preview, Báo Giá & Đặt Hàng -->
+            <div class="lg:col-span-5 space-y-6">
+
+                <!-- Khung Xem Trước Mô Phỏng (Laser Burn Simulation) -->
+                <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-xl sticky top-20">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-eye text-amber-400"></i> Mô phỏng khi khắc thật
+                        </h2>
+                        <span id="previewStatus" class="text-[11px] text-slate-400 font-medium">Chưa có ảnh</span>
+                    </div>
+
+                    <!-- Vùng Canvas Preview -->
+                    <div id="previewContainer" class="relative aspect-square w-full rounded-xl overflow-hidden border border-slate-700 bg-slate-950 flex items-center justify-center p-2 shadow-inner">
+                        <div id="emptyPreviewNotice" class="text-center p-6 space-y-2">
+                            <i class="fa-solid fa-image text-slate-700 text-5xl"></i>
+                            <p class="text-xs text-slate-400">Vui lòng tải ảnh lên để xem trước vết cháy Laser trên phôi</p>
+                        </div>
+                        <img id="laserBurnPreview" class="hidden max-h-full max-w-full object-contain rounded shadow-lg transition-opacity duration-300">
+
+                        <div id="previewSpinner" class="hidden absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center gap-2 z-20">
+                            <i class="fa-solid fa-circle-notch fa-spin text-amber-400 text-3xl"></i>
+                            <span class="text-xs text-slate-200 font-semibold">Đang xử lý Dithering & Tính toán...</span>
+                        </div>
+                    </div>
+
+                    <!-- Bảng Báo Giá Chi Tiết -->
+                    <div class="mt-5 pt-4 border-t border-slate-700/70 space-y-2.5">
+                        <div class="flex justify-between text-xs text-slate-400">
+                            <span>Phí phôi vật liệu:</span>
+                            <span id="priceBase" class="text-slate-200 font-medium">-- đ</span>
+                        </div>
+                        <div class="flex justify-between text-xs text-slate-400">
+                            <span>Phí diện tích gia công:</span>
+                            <span id="priceArea" class="text-slate-200 font-medium">-- đ</span>
+                        </div>
+                        <div class="flex justify-between text-xs text-slate-400">
+                            <span>Thời gian khắc dự kiến:</span>
+                            <span id="timeEst" class="text-amber-400 font-semibold">-- phút</span>
+                        </div>
+
+                        <div class="pt-3 border-t border-slate-700 flex items-baseline justify-between">
+                            <span class="text-sm font-bold text-white">Tổng thanh toán:</span>
+                            <div class="text-right">
+                                <span id="priceTotal" class="text-2xl font-black text-amber-400">-- đ</span>
+                                <span class="text-[10px] text-slate-400 block">(Đã bao gồm công khắc)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Nút Đặt Hàng & Thanh Toán -->
+                    <button id="btnCheckout" disabled class="mt-5 w-full py-3.5 px-4 rounded-xl font-extrabold text-sm text-slate-950 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-qrcode text-base"></i> ĐẶT HÀNG & QUÉT MÃ VIETQR
+                    </button>
+                    <p class="text-[11px] text-center text-slate-400 mt-2">
+                        <i class="fa-solid fa-shield-halved text-amber-500/80 mr-1"></i> Tự động tạo file G-code nạp vào máy Laser ngay sau khi thanh toán
+                    </p>
+                </div>
+
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Modal Thanh Toán VietQR -->
+    <div id="paymentModal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+            <!-- Nút đóng -->
+            <button id="btnCloseModal" class="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+
+            <div class="text-center mb-4">
+                <div class="w-12 h-12 mx-auto rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xl mb-2 font-bold">
+                    <i class="fa-solid fa-wallet"></i>
+                </div>
+                <h3 class="text-base font-bold text-white">Quét Mã VietQR Để Thanh Toán</h3>
+                <p class="text-xs text-slate-400">Mã đơn hàng: <span id="modalOrderId" class="text-amber-400 font-bold font-mono">LSxxxx</span></p>
+            </div>
+
+            <!-- Khung mã QR -->
+            <div class="bg-white p-3 rounded-2xl shadow-inner mx-auto w-64 aspect-square flex items-center justify-center">
+                <img id="qrImage" class="w-full h-full object-contain rounded-lg" alt="VietQR Code">
+            </div>
+
+            <!-- Thông tin chuyển khoản -->
+            <div class="mt-4 bg-slate-800/80 rounded-xl p-3.5 space-y-2 text-xs border border-slate-700">
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Ngân hàng:</span>
+                    <span id="bankName" class="font-bold text-slate-100">MB BANK</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Số tài khoản:</span>
+                    <span id="bankAccount" class="font-bold font-mono text-amber-400 text-sm">0987654321</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Chủ tài khoản:</span>
+                    <span id="bankOwner" class="font-bold text-slate-100">NGUYEN VAN A</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Số tiền:</span>
+                    <span id="modalAmount" class="font-extrabold text-emerald-400 text-sm">65,000 đ</span>
+                </div>
+                <div class="flex justify-between border-t border-slate-700/60 pt-2">
+                    <span class="text-slate-400">Nội dung CK:</span>
+                    <span id="modalTransferContent" class="font-bold font-mono text-white bg-slate-700 px-2 py-0.5 rounded">LSxxxx</span>
+                </div>
+            </div>
+
+            <!-- Nút xác nhận -->
+            <div class="mt-5 space-y-2">
+                <button id="btnConfirmPaid" class="w-full py-3 px-4 rounded-xl font-bold text-xs text-white bg-emerald-600 hover:bg-emerald-500 transition-all flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-circle-check"></i> Tôi Đã Chuyển Khoản Thành Công
+                </button>
+                <p class="text-[11px] text-center text-slate-400">
+                    File G-code sẽ tự động được tạo và gửi đến hàng đợi máy laser xưởng!
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script App -->
+    <script src="/static/app.js"></script>
+</body>
+</html>
