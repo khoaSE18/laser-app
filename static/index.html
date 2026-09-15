@@ -290,15 +290,19 @@
                 </div>
             </div>
 
-            <!-- Trạng thái chờ xưởng xác nhận tiền -->
-            <div id="paymentWaitingBox" class="mt-4 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-center space-y-1.5">
+            <!-- Trạng thái chờ xác nhận tiền (Tự động 24/7) -->
+            <div id="paymentWaitingBox" class="mt-4 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-center space-y-2">
                 <div class="flex items-center justify-center gap-2 text-xs font-bold text-amber-400">
                     <i class="fa-solid fa-circle-notch fa-spin"></i>
-                    <span>Đang chờ xưởng xác nhận tiền về tài khoản VIB...</span>
+                    <span>Đang chờ nhận tiền về tài khoản VIB (Tự động 24/7)...</span>
                 </div>
                 <p class="text-[11px] text-slate-300">
-                    Vui lòng chuyển khoản đúng <strong>Số tiền</strong> và <strong>Nội dung CK</strong> ở trên. Hệ thống sẽ tự động cập nhật ngay khi xưởng nhận được tiền!
+                    Vui lòng chuyển khoản đúng <strong>Số tiền</strong> và <strong>Nội dung CK</strong> ở trên. Hệ thống tự động kích hoạt ngay khi tài khoản nhận được tiền!
                 </p>
+                <div class="bg-slate-950/70 p-2.5 rounded-lg border border-slate-800 text-[11px] text-slate-400 leading-relaxed text-left flex items-start gap-2">
+                    <i class="fa-solid fa-moon text-amber-400 text-xs mt-0.5 flex-shrink-0"></i>
+                    <span><strong>Đặt đơn ban đêm?</strong> Sau khi quét mã chuyển khoản, bạn có thể yên tâm đóng trang này. Đơn hàng sẽ tự động duyệt và xếp vào hàng đợi máy laser để ưu tiên gia công đầu ca sáng mai!</span>
+                </div>
             </div>
 
             <!-- Trạng thái thành công khi xưởng đã duyệt -->

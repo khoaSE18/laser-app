@@ -24,6 +24,9 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "khoa2026")
 # Đường dẫn máy chủ Cloud Render (Dành cho máy xưởng tự động kéo đơn về)
 RENDER_CLOUD_URL = os.environ.get("RENDER_CLOUD_URL", "https://laser-app-7wod.onrender.com")
 
+# Mã Token xác thực Webhook Ngân Hàng (SePay / Casso)
+WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "khoa2026_webhook_secret")
+
 # Thông tin liên hệ & Hỗ trợ tư vấn thiết kế Zalo
 ZALO_PHONE = "0352445940"
 HOTLINE = "0352 445 940"

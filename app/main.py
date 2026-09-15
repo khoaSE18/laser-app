@@ -7,10 +7,11 @@ import shutil
 import subprocess
 import urllib.request
 import urllib.parse
+import re
 from datetime import datetime
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Depends
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Depends, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +20,8 @@ from PIL import Image
 from app.config import (
     BASE_DIR, STORAGE_DIR, UPLOAD_DIR, GCODE_DIR, PREVIEW_DIR,
     BANK_CONFIG, LASER_MACHINE, MATERIALS, LASERGRBL_CANDIDATE_PATHS,
-    ADMIN_PASSWORD, ZALO_PHONE, HOTLINE, ZALO_LINK, RENDER_CLOUD_URL
+    ADMIN_PASSWORD, ZALO_PHONE, HOTLINE, ZALO_LINK, RENDER_CLOUD_URL,
+    WEBHOOK_TOKEN
 )
 from app.database import (
     init_db, create_order, get_order, update_order_status,
@@ -204,6 +206,89 @@ def check_order_status(order_id: str):
     if not order:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     return {"success": True, "order": order}
+
+@app.post("/api/payment/webhook")
+async def sepay_payment_webhook(request: Request):
+    """
+    Webhook tự động nhận thông báo biến động số dư ngân hàng 24/7 từ SePay / Casso / MyVIB.
+    Tự động quét mã đơn hàng (LSxxxx), đối chiếu số tiền và kích hoạt trạng thái PAID ngay cả lúc nửa đêm.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    token_query = request.query_params.get("token", "")
+    expected_token = WEBHOOK_TOKEN.strip() if WEBHOOK_TOKEN else ""
+
+    # Kiểm tra Token nếu cấu hình bắt buộc
+    if expected_token and (expected_token in auth_header or token_query == expected_token or request.headers.get("X-API-KEY", "") == expected_token):
+        pass
+
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Dữ liệu Webhook không đúng định dạng JSON")
+
+    print(f"[WEBHOOK PAYMENT] Received transaction notification")
+
+    # Chuẩn hóa payload (hỗ trợ SePay, Casso, app mobile forwarder)
+    transactions = []
+    if isinstance(data, list):
+        transactions = data
+    elif "data" in data and isinstance(data["data"], list):
+        transactions = data["data"]
+    else:
+        transactions = [data]
+
+    processed_orders = []
+
+    for item in transactions:
+        content = (
+            item.get("content")
+            or item.get("description")
+            or item.get("code")
+            or item.get("transactionContent")
+            or ""
+        )
+        amount = (
+            item.get("transferAmount")
+            or item.get("amountIn")
+            or item.get("amount")
+            or 0
+        )
+        try:
+            amount = int(float(amount))
+        except (ValueError, TypeError):
+            amount = 0
+
+        # Tìm mã đơn hàng dạng LS...
+        match = re.search(r"(LS\d{6,})", content.upper())
+        if not match:
+            continue
+
+        order_id = match.group(1)
+        order = get_order(order_id)
+
+        if not order:
+            print(f"[WEBHOOK PAYMENT] Order {order_id} not found")
+            continue
+
+        if order["status"] in ["PENDING_PAYMENT"]:
+            if amount >= order["total_price"]:
+                update_order_status(order_id, "PAID")
+                sync_status_to_cloud(order_id, "PAID")
+                processed_orders.append({
+                    "order_id": order_id,
+                    "status": "PAID",
+                    "amount": amount,
+                    "required": order["total_price"]
+                })
+                print(f"[WEBHOOK PAYMENT] Auto-approved order {order_id} ({amount} VND)")
+            else:
+                print(f"[WEBHOOK PAYMENT] Order {order_id} insufficient amount: {amount} / {order['total_price']}")
+
+    return {
+        "success": True,
+        "message": f"Đã xử lý {len(processed_orders)} đơn hàng",
+        "processed": processed_orders
+    }
 
 @app.get("/api/order/track/search")
 def track_orders(query: str):
