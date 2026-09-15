@@ -21,6 +21,9 @@ BANK_CONFIG = {
 # Mật khẩu quản trị xưởng (/admin)
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "khoa2026")
 
+# Đường dẫn máy chủ Cloud Render (Dành cho máy xưởng tự động kéo đơn về)
+RENDER_CLOUD_URL = os.environ.get("RENDER_CLOUD_URL", "https://laser-app-7wod.onrender.com")
+
 # Thông tin liên hệ & Hỗ trợ tư vấn thiết kế Zalo
 ZALO_PHONE = "0352445940"
 HOTLINE = "0352 445 940"

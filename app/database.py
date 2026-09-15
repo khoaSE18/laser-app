@@ -59,6 +59,33 @@ def create_order(order_data: dict) -> dict:
     conn.close()
     return order_data
 
+def upsert_order(order_data: dict) -> dict:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+    INSERT INTO orders (
+        id, created_at, customer_name, customer_phone, customer_note,
+        original_filename, image_path, preview_path, gcode_path,
+        width_mm, height_mm, material_key, material_name, mode,
+        estimated_minutes, total_price, status, payment_ref
+    ) VALUES (
+        :id, :created_at, :customer_name, :customer_phone, :customer_note,
+        :original_filename, :image_path, :preview_path, :gcode_path,
+        :width_mm, :height_mm, :material_key, :material_name, :mode,
+        :estimated_minutes, :total_price, :status, :payment_ref
+    )
+    ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        customer_name = excluded.customer_name,
+        customer_phone = excluded.customer_phone,
+        customer_note = excluded.customer_note,
+        gcode_path = excluded.gcode_path,
+        preview_path = excluded.preview_path
+    """, order_data)
+    conn.commit()
+    conn.close()
+    return order_data
+
 def get_order(order_id: str):
     conn = get_db()
     cursor = conn.cursor()

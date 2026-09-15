@@ -1,9 +1,12 @@
 import os
 import io
 import time
+import json
 import base64
 import shutil
 import subprocess
+import urllib.request
+import urllib.parse
 from datetime import datetime
 from typing import Optional
 
@@ -16,11 +19,11 @@ from PIL import Image
 from app.config import (
     BASE_DIR, STORAGE_DIR, UPLOAD_DIR, GCODE_DIR, PREVIEW_DIR,
     BANK_CONFIG, LASER_MACHINE, MATERIALS, LASERGRBL_CANDIDATE_PATHS,
-    ADMIN_PASSWORD, ZALO_PHONE, HOTLINE, ZALO_LINK
+    ADMIN_PASSWORD, ZALO_PHONE, HOTLINE, ZALO_LINK, RENDER_CLOUD_URL
 )
 from app.database import (
     init_db, create_order, get_order, update_order_status,
-    list_orders, find_orders_by_query
+    list_orders, find_orders_by_query, upsert_order
 )
 from app.laser_engine import (
     process_and_dither_image, generate_preview_image,
@@ -287,6 +290,67 @@ def admin_login(pin: str = Form(...)):
         return {"success": True, "message": "Đăng nhập thành công!"}
     raise HTTPException(status_code=401, detail="Mã PIN không đúng! Vui lòng thử lại.")
 
+def sync_cloud_orders():
+    """Tự động kéo đơn hàng và file G-code từ Render Cloud về máy xưởng nội bộ"""
+    if not RENDER_CLOUD_URL or os.name != 'nt':
+        return
+
+    try:
+        url = f"{RENDER_CLOUD_URL.rstrip('/')}/api/admin/orders"
+        req = urllib.request.Request(url, headers={"X-Admin-PIN": ADMIN_PASSWORD})
+        with urllib.request.urlopen(req, timeout=4) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode('utf-8'))
+                if data.get("success"):
+                    for cloud_order in data.get("orders", []):
+                        order_id = cloud_order["id"]
+                        local_gcode = os.path.join(GCODE_DIR, f"{order_id}.nc")
+                        local_preview = os.path.join(PREVIEW_DIR, f"{order_id}_preview.png")
+
+                        if not os.path.exists(local_gcode):
+                            try:
+                                gcode_url = f"{RENDER_CLOUD_URL.rstrip('/')}/api/admin/orders/{order_id}/download-gcode"
+                                urllib.request.urlretrieve(gcode_url, local_gcode)
+                            except Exception:
+                                pass
+
+                        if not os.path.exists(local_preview):
+                            try:
+                                prev_url = f"{RENDER_CLOUD_URL.rstrip('/')}/api/storage/previews/{order_id}_preview.png"
+                                urllib.request.urlretrieve(prev_url, local_preview)
+                            except Exception:
+                                pass
+
+                        cloud_order_copy = dict(cloud_order)
+                        cloud_order_copy["gcode_path"] = local_gcode
+                        cloud_order_copy["preview_path"] = local_preview
+                        upsert_order(cloud_order_copy)
+    except Exception as e:
+        print("Lỗi đồng bộ Cloud:", e)
+
+def sync_status_to_cloud(order_id: str, new_status: str):
+    """Đẩy trạng thái cập nhật lên Render Cloud"""
+    if not RENDER_CLOUD_URL or os.name != 'nt':
+        return
+    try:
+        url = f"{RENDER_CLOUD_URL.rstrip('/')}/api/admin/orders/{order_id}/status"
+        data = urllib.parse.urlencode({"status": new_status}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"X-Admin-PIN": ADMIN_PASSWORD})
+        urllib.request.urlopen(req, timeout=3)
+    except Exception as e:
+        print(f"Lỗi đẩy trạng thái {order_id} lên Cloud:", e)
+
+def sync_confirm_payment_to_cloud(order_id: str):
+    """Đẩy xác nhận thanh toán lên Render Cloud"""
+    if not RENDER_CLOUD_URL or os.name != 'nt':
+        return
+    try:
+        url = f"{RENDER_CLOUD_URL.rstrip('/')}/api/admin/orders/{order_id}/confirm-payment"
+        req = urllib.request.Request(url, data=b"", headers={"X-Admin-PIN": ADMIN_PASSWORD})
+        urllib.request.urlopen(req, timeout=3)
+    except Exception as e:
+        print(f"Lỗi đẩy duyệt tiền {order_id} lên Cloud:", e)
+
 @app.post("/api/admin/orders/{order_id}/confirm-payment")
 def admin_confirm_payment(order_id: str, authenticated: bool = Depends(verify_admin_pin)):
     """Xác nhận đã nhận tiền (chỉ nhân viên xưởng có PIN mới được bấm)"""
@@ -294,18 +358,21 @@ def admin_confirm_payment(order_id: str, authenticated: bool = Depends(verify_ad
     if not order:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     updated = update_order_status(order_id, "PAID")
+    sync_confirm_payment_to_cloud(order_id)
     return {"success": True, "order": updated, "message": f"Đã duyệt thanh toán thành công cho đơn {order_id}!"}
 
 @app.get("/api/admin/orders")
 def get_all_orders(authenticated: bool = Depends(verify_admin_pin)):
-    """Lấy danh sách tất cả đơn hàng cho xưởng quản lý (yêu cầu mã PIN)"""
+    """Lấy danh sách tất cả đơn hàng cho xưởng quản lý (tự động đồng bộ với Render Cloud)"""
+    sync_cloud_orders()
     orders = list_orders(limit=100)
     return {"success": True, "orders": orders}
 
 @app.post("/api/admin/orders/{order_id}/status")
 def change_order_status(order_id: str, status: str = Form(...), authenticated: bool = Depends(verify_admin_pin)):
-    """Cập nhật trạng thái đơn hàng (yêu cầu mã PIN)"""
+    """Cập nhật trạng thái đơn hàng (tự động đồng bộ lên Render Cloud)"""
     updated = update_order_status(order_id, status)
+    sync_status_to_cloud(order_id, status)
     return {"success": True, "order": updated}
 
 @app.post("/api/admin/orders/{order_id}/open-lasergrbl")
@@ -325,6 +392,7 @@ def open_in_lasergrbl(order_id: str, authenticated: bool = Depends(verify_admin_
     lasergrbl_bin = find_lasergrbl_path()
 
     try:
+        sync_status_to_cloud(order_id, "ENGRAVING")
         if lasergrbl_bin and os.path.exists(lasergrbl_bin):
             subprocess.Popen([lasergrbl_bin, gcode_path])
             return {
