@@ -45,53 +45,63 @@ async function adminFetch(url, options = {}) {
 }
 
 function showLogin() {
-    loginModal.classList.remove("hidden");
-    pinInput.value = "";
-    loginError.classList.add("hidden");
-    setTimeout(() => pinInput.focus(), 100);
+    if (loginModal) loginModal.classList.remove("hidden");
+    if (pinInput) {
+        pinInput.value = "";
+        setTimeout(() => pinInput.focus(), 100);
+    }
+    if (loginError) loginError.classList.add("hidden");
 }
 
 function hideLogin() {
-    loginModal.classList.add("hidden");
+    if (loginModal) loginModal.classList.add("hidden");
 }
 
 // Xử lý Form đăng nhập mã PIN
-loginForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const pin = pinInput.value.trim();
-    if (!pin) return;
+if (loginForm) {
+    loginForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const pin = pinInput ? pinInput.value.trim() : "";
+        if (!pin) return;
 
-    loginError.classList.add("hidden");
+        if (loginError) loginError.classList.add("hidden");
 
-    const formData = new FormData();
-    formData.append("pin", pin);
+        const formData = new FormData();
+        formData.append("pin", pin);
 
-    try {
-        const res = await fetch("/api/admin/login", {
-            method: "POST",
-            body: formData
-        });
+        try {
+            const res = await fetch("/api/admin/login", {
+                method: "POST",
+                body: formData
+            });
 
-        if (res.ok) {
-            setAdminPin(pin);
-            hideLogin();
-            fetchOrders();
-        } else {
-            loginError.textContent = "Mã PIN không chính xác! Vui lòng thử lại.";
-            loginError.classList.remove("hidden");
-            pinInput.focus();
+            if (res.ok) {
+                setAdminPin(pin);
+                hideLogin();
+                fetchOrders();
+            } else {
+                if (loginError) {
+                    loginError.textContent = "Mã PIN không chính xác! Vui lòng thử lại.";
+                    loginError.classList.remove("hidden");
+                }
+                if (pinInput) pinInput.focus();
+            }
+        } catch (err) {
+            if (loginError) {
+                loginError.textContent = "Lỗi kết nối máy chủ";
+                loginError.classList.remove("hidden");
+            }
         }
-    } catch (err) {
-        loginError.textContent = "Lỗi kết nối máy chủ";
-        loginError.classList.remove("hidden");
-    }
-});
+    });
+}
 
 // Đăng xuất
-btnLogout.addEventListener("click", () => {
-    clearAdminPin();
-    showLogin();
-});
+if (btnLogout) {
+    btnLogout.addEventListener("click", () => {
+        clearAdminPin();
+        showLogin();
+    });
+}
 
 async function fetchOrders() {
     if (!getAdminPin()) {
@@ -112,10 +122,12 @@ async function fetchOrders() {
 }
 
 function updateStats(orders) {
-    statTotal.textContent = orders.length;
-    statPaid.textContent = orders.filter(o => o.status === "PAID").length;
-    statEngraving.textContent = orders.filter(o => o.status === "ENGRAVING").length;
-    statCompleted.textContent = orders.filter(o => o.status === "COMPLETED").length;
+    if (statTotal) statTotal.textContent = orders.length;
+    if (statPaid) statPaid.textContent = orders.filter(o => o.status === "PAID").length;
+    const statPreparing = document.getElementById("statPreparing");
+    if (statPreparing) statPreparing.textContent = orders.filter(o => o.status === "PREPARING").length;
+    if (statEngraving) statEngraving.textContent = orders.filter(o => o.status === "ENGRAVING").length;
+    if (statCompleted) statCompleted.textContent = orders.filter(o => o.status === "COMPLETED").length;
 }
 
 function renderOrders(orders) {
@@ -187,16 +199,28 @@ function renderOrders(orders) {
                 </td>
 
                 <!-- Trạng thái -->
-                <td class="py-3.5 px-4">
+                <td class="py-3.5 px-4 min-w-[170px]">
                     <div class="space-y-1.5">
-                        <span class="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold border ${getStatusBadgeStyle(order.status)}">
-                            ${getStatusLabel(order.status)}
-                        </span>
+                        <select onchange="updateStatus('${order.id}', this.value)" class="w-full text-[11px] font-bold py-1.5 px-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-amber-500 cursor-pointer">
+                            <option value="PENDING_PAYMENT" ${order.status === 'PENDING_PAYMENT' ? 'selected' : ''}>⏳ 1. Chờ Chuyển Khoản</option>
+                            <option value="PAID" ${order.status === 'PAID' ? 'selected' : ''}>✅ 2. Đã Nhận Tiền (VIB)</option>
+                            <option value="PREPARING" ${order.status === 'PREPARING' ? 'selected' : ''}>🎨 3. Chuẩn Bị Phôi & File</option>
+                            <option value="ENGRAVING" ${order.status === 'ENGRAVING' ? 'selected' : ''}>🔥 4. Đang Khắc Laser</option>
+                            <option value="COMPLETED" ${order.status === 'COMPLETED' ? 'selected' : ''}>🎉 5. Hoàn Thành / Giao</option>
+                            <option value="CANCELLED" ${order.status === 'CANCELLED' ? 'selected' : ''}>❌ Hủy Đơn Hàng</option>
+                        </select>
                         
                         <!-- Nút duyệt tiền chỉ hiện khi đang chờ thanh toán -->
                         ${isPending ? `
                             <button onclick="confirmOrderPayment('${order.id}')" class="w-full py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 shadow-md shadow-emerald-600/20 transition-all">
                                 <i class="fa-solid fa-check"></i> Duyệt Đã Nhận Tiền
+                            </button>
+                        ` : ''}
+
+                        <!-- Nút báo xong nhanh khi đang khắc -->
+                        ${isEngraving ? `
+                            <button onclick="updateStatus('${order.id}', 'COMPLETED')" class="w-full py-1 px-2 bg-emerald-600/90 hover:bg-emerald-600 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all">
+                                <i class="fa-solid fa-circle-check"></i> Báo Đã Khắc Xong
                             </button>
                         ` : ''}
                     </div>
@@ -296,6 +320,7 @@ async function updateStatus(orderId, newStatus) {
 function getStatusBadgeStyle(status) {
     switch (status) {
         case "PAID": return "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+        case "PREPARING": return "bg-purple-500/10 text-purple-400 border-purple-500/30";
         case "ENGRAVING": return "bg-amber-500/10 text-amber-400 border-amber-500/30";
         case "COMPLETED": return "bg-blue-500/10 text-blue-400 border-blue-500/30";
         case "CANCELLED": return "bg-rose-500/10 text-rose-400 border-rose-500/30";
@@ -305,7 +330,8 @@ function getStatusBadgeStyle(status) {
 
 function getStatusLabel(status) {
     switch (status) {
-        case "PAID": return "✅ Đã Thanh Toán";
+        case "PAID": return "✅ Đã Nhận Tiền";
+        case "PREPARING": return "🎨 Chuẩn Bị Phôi";
         case "ENGRAVING": return "🔥 Đang Khắc";
         case "COMPLETED": return "🎉 Hoàn Thành";
         case "CANCELLED": return "❌ Đã Hủy";
@@ -317,7 +343,9 @@ function formatVND(amount) {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 }
 
-btnRefresh.addEventListener("click", fetchOrders);
+if (btnRefresh) {
+    btnRefresh.addEventListener("click", fetchOrders);
+}
 
 // Tự động làm mới mỗi 5 giây nếu đã đăng nhập
 setInterval(() => {

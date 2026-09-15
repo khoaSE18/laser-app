@@ -232,6 +232,10 @@ def track_orders(query: str):
             step = 2
             step_name = "Xưởng đã nhận tiền (VIB) - Đang xếp hàng"
             desc = "Thanh toán thành công! Xưởng đang chuẩn bị phôi và kiểm tra file thiết kế."
+        elif status == "PREPARING":
+            step = 3
+            step_name = "🎨 Đang chuẩn bị phôi & file"
+            desc = "Kỹ thuật viên xưởng đang chuẩn bị phôi và nạp file G-code vào máy laser."
         elif status == "ENGRAVING":
             step = 4
             step_name = "🔥 Máy Laser đang tiến hành khắc"

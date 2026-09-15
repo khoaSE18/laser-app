@@ -49,22 +49,26 @@
     <!-- Main Container -->
     <main class="max-w-7xl mx-auto px-4 py-6 flex-1 w-full space-y-6">
 
-        <!-- Thẻ thống kê tổng quan -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 shadow-lg">
-                <span class="text-xs text-slate-400 font-medium block mb-1">Tổng đơn hàng</span>
+        <!-- Thẻ thống kê tổng quan (5 giai đoạn) -->
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-3.5 shadow-lg">
+                <span class="text-xs text-slate-400 font-medium block mb-1">Tổng đơn</span>
                 <span id="statTotal" class="text-2xl font-extrabold text-white">0</span>
             </div>
-            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 shadow-lg">
-                <span class="text-xs text-amber-400 font-medium block mb-1">Đã thanh toán (Sẵn sàng khắc)</span>
+            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-3.5 shadow-lg">
+                <span class="text-xs text-amber-400 font-medium block mb-1">Đã duyệt tiền</span>
                 <span id="statPaid" class="text-2xl font-extrabold text-amber-400">0</span>
             </div>
-            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 shadow-lg">
+            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-3.5 shadow-lg">
+                <span class="text-xs text-purple-400 font-medium block mb-1">Chuẩn bị phôi</span>
+                <span id="statPreparing" class="text-2xl font-extrabold text-purple-400">0</span>
+            </div>
+            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-3.5 shadow-lg">
                 <span class="text-xs text-blue-400 font-medium block mb-1">Đang gia công</span>
                 <span id="statEngraving" class="text-2xl font-extrabold text-blue-400">0</span>
             </div>
-            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 shadow-lg">
-                <span class="text-xs text-emerald-400 font-medium block mb-1">Đã hoàn thành</span>
+            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-3.5 shadow-lg">
+                <span class="text-xs text-emerald-400 font-medium block mb-1">Đã hoàn tất</span>
                 <span id="statCompleted" class="text-2xl font-extrabold text-emerald-400">0</span>
             </div>
         </div>
@@ -122,8 +126,10 @@
                 </button>
             </div>
         </div>
+    </div>
+
     <!-- Modal Nhập Mã PIN Bảo Mật Quản Trị -->
-    <div id="loginModal" class="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4">
+    <div id="loginModal" class="hidden fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4">
         <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-sm w-full p-7 shadow-2xl text-center space-y-4">
             <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 text-slate-950 flex items-center justify-center text-2xl font-bold shadow-lg shadow-amber-500/20">
                 <i class="fa-solid fa-lock"></i>
@@ -142,8 +148,8 @@
         </div>
     </div>
 
-    <!-- Script Admin -->
-    <script src="/static/admin.js"></script>
+    <!-- Script Admin với cache-busting -->
+    <script src="/static/admin.js?v=2"></script>
 </body>
 </html>
 

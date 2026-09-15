@@ -10,5 +10,5 @@ echo [*] Tu dong mo trinh duyet quan tri tai: http://localhost:8000/admin
 echo.
 
 start http://localhost:8000/admin
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 pause
