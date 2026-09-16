@@ -514,17 +514,21 @@ window.reopenVietQR = reopenVietQR;
 // 7. Xử Lý Giỏ Hàng & Đơn Của Tôi (Cart & Order History)
 // ==========================================
 function openCartModal() {
-    if (cartModal) {
-        cartModal.classList.remove("hidden");
+    const modal = document.getElementById("cartModal");
+    if (modal) {
+        modal.classList.remove("hidden");
         loadMyOrders();
     }
 }
+window.openCartModal = openCartModal;
 
 function closeCartModal() {
-    if (cartModal) {
-        cartModal.classList.add("hidden");
+    const modal = document.getElementById("cartModal");
+    if (modal) {
+        modal.classList.add("hidden");
     }
 }
+window.closeCartModal = closeCartModal;
 
 if (btnOpenCart) {
     btnOpenCart.addEventListener("click", openCartModal);
@@ -533,6 +537,23 @@ if (btnOpenCart) {
 if (btnCloseCart) {
     btnCloseCart.addEventListener("click", closeCartModal);
 }
+
+// Bấm ra ngoài vùng modal hoặc nhấn ESC để đóng
+const modalBackdrop = document.getElementById("cartModal");
+if (modalBackdrop) {
+    modalBackdrop.addEventListener("click", (e) => {
+        if (e.target === modalBackdrop) {
+            closeCartModal();
+        }
+    });
+}
+
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+        closeCartModal();
+        if (paymentModal) paymentModal.classList.add("hidden");
+    }
+});
 
 // Nút xem tiến trình trong Modal thanh toán thành công
 const btnViewOrderProgress = document.getElementById("btnViewOrderProgress");

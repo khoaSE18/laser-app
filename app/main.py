@@ -565,11 +565,17 @@ if os.path.exists(STATIC_DIR):
 
 @app.get("/")
 def serve_index():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    return FileResponse(
+        os.path.join(STATIC_DIR, "index.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+    )
 
 @app.get("/admin")
 def serve_admin():
-    return FileResponse(os.path.join(STATIC_DIR, "admin.html"))
+    return FileResponse(
+        os.path.join(STATIC_DIR, "admin.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+    )
 
 @app.get("/robots.txt")
 def serve_robots():
