@@ -570,3 +570,11 @@ def serve_index():
 @app.get("/admin")
 def serve_admin():
     return FileResponse(os.path.join(STATIC_DIR, "admin.html"))
+
+@app.get("/robots.txt")
+def serve_robots():
+    return FileResponse(os.path.join(STATIC_DIR, "robots.txt"), media_type="text/plain")
+
+@app.get("/sitemap.xml")
+def serve_sitemap():
+    return FileResponse(os.path.join(STATIC_DIR, "sitemap.xml"), media_type="application/xml")
