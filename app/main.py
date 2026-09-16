@@ -585,4 +585,4 @@ def serve_google_verify(token: str):
     file_path = os.path.join(STATIC_DIR, filename)
     if os.path.exists(file_path):
         return FileResponse(file_path, media_type="text/html")
-    return HTMLResponse(content=f"google-site-verification: {filename}\n")
+    raise HTTPException(status_code=404, detail="File Not Found")
