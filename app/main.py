@@ -13,7 +13,7 @@ from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Depends, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
@@ -578,3 +578,11 @@ def serve_robots():
 @app.get("/sitemap.xml")
 def serve_sitemap():
     return FileResponse(os.path.join(STATIC_DIR, "sitemap.xml"), media_type="application/xml")
+
+@app.get("/google{token}.html")
+def serve_google_verify(token: str):
+    filename = f"google{token}.html"
+    file_path = os.path.join(STATIC_DIR, filename)
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="text/html")
+    return HTMLResponse(content=f"google-site-verification: {filename}\n")
