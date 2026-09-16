@@ -127,7 +127,9 @@ async def create_new_order(
     customer_name: str = Form("Khách hàng"),
     customer_phone: str = Form(""),
     customer_note: str = Form(""),
-    need_design: bool = Form(False)
+    need_design: bool = Form(False),
+    delivery_method: str = Form("shipping"),
+    shipping_address: str = Form("")
 ):
     """
     Tạo đơn hàng mới, sinh file G-code .NC chuẩn cho LaserGRBL, tạo mã VietQR
@@ -171,9 +173,11 @@ async def create_new_order(
     order_record = {
         "id": order_id,
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "customer_name": customer_name,
-        "customer_phone": customer_phone,
+        "customer_name": customer_name.strip() or "Khách hàng Web",
+        "customer_phone": customer_phone.strip(),
         "customer_note": final_note,
+        "delivery_method": delivery_method.strip() or "shipping",
+        "shipping_address": shipping_address.strip(),
 
         "original_filename": image.filename,
         "image_path": orig_save_path,
@@ -290,16 +294,65 @@ async def sepay_payment_webhook(request: Request):
         "processed": processed_orders
     }
 
+def format_order_for_client(o: dict) -> dict:
+    status = o.get("status", "PENDING_PAYMENT")
+    if status == "PENDING_PAYMENT":
+        step = 1
+        step_name = "Chờ xưởng xác nhận chuyển khoản"
+        desc = "Đơn hàng đã được tạo. Vui lòng chuyển khoản đúng cú pháp để xưởng bắt đầu gia công."
+    elif status == "PAID":
+        step = 2
+        step_name = "Xưởng đã nhận tiền (VIB) - Đang xếp hàng"
+        desc = "Thanh toán thành công! Xưởng đang chuẩn bị phôi và kiểm tra file thiết kế."
+    elif status == "PREPARING":
+        step = 3
+        step_name = "🎨 Đang chuẩn bị phôi & file"
+        desc = "Kỹ thuật viên xưởng đang chuẩn bị phôi và nạp file G-code vào máy laser."
+    elif status == "ENGRAVING":
+        step = 4
+        step_name = "🔥 Máy Laser đang tiến hành khắc"
+        desc = f"Tia laser đang chạy trên phôi. Thời gian gia công dự kiến: ~{o.get('estimated_minutes', 15)} phút."
+    elif status == "COMPLETED":
+        step = 5
+        step_name = "🎉 Khắc hoàn tất! Sẵn sàng bàn giao"
+        desc = "Sản phẩm đã được khắc xong đẹp mắt. Mời bạn đến xưởng nhận hàng hoặc chờ ship!"
+    elif status == "CANCELLED":
+        step = 0
+        step_name = "❌ Đơn hàng đã hủy"
+        desc = "Đơn hàng đã được hủy."
+    else:
+        step = 3
+        step_name = "🎨 Đang chuẩn bị phôi & thiết kế"
+        desc = "Kỹ thuật viên đang chuẩn bị gá phôi vào máy laser."
+
+    return {
+        "id": o["id"],
+        "created_at": o["created_at"],
+        "customer_name": o.get("customer_name") or "",
+        "customer_phone": o.get("customer_phone") or "",
+        "customer_note": o.get("customer_note") or "",
+        "delivery_method": o.get("delivery_method") or "shipping",
+        "shipping_address": o.get("shipping_address") or "",
+        "material_name": o.get("material_name") or "",
+        "width_mm": o.get("width_mm", 0),
+        "height_mm": o.get("height_mm", 0),
+        "total_price": o.get("total_price", 0),
+        "status": status,
+        "current_step": step,
+        "step_name": step_name,
+        "step_desc": desc,
+        "estimated_minutes": o.get("estimated_minutes", 0),
+        "preview_url": f"/api/storage/previews/{o['id']}_preview.png",
+        "vietqr_url": (
+            f"https://img.vietqr.io/image/{BANK_CONFIG['bank_id']}-{BANK_CONFIG['account_no']}-{BANK_CONFIG['template']}.png"
+            f"?amount={o.get('total_price', 0)}&addInfo={o['id']}&accountName={BANK_CONFIG['account_name']}"
+        )
+    }
+
 @app.get("/api/order/track/search")
 def track_orders(query: str):
     """
     Tra cứu tiến trình đơn hàng theo mã đơn (LSxxxx) hoặc số điện thoại.
-    Trả về 5 bước tiến trình:
-    1: Tiếp nhận đơn
-    2: Đã nhận chuyển khoản VIB
-    3: Đang chuẩn bị phôi & file
-    4: Máy Laser đang khắc
-    5: Đã hoàn thành
     """
     q = query.strip()
     if len(q) < 3:
@@ -309,57 +362,30 @@ def track_orders(query: str):
     if not orders:
         return {"success": False, "message": f"Không tìm thấy đơn hàng nào với từ khóa: {q}"}
 
-    step_info = []
-    for o in orders:
-        status = o["status"]
-        if status == "PENDING_PAYMENT":
-            step = 1
-            step_name = "Chờ xưởng xác nhận chuyển khoản"
-            desc = "Đơn hàng đã được tạo. Vui lòng chuyển khoản đúng cú pháp để xưởng bắt đầu gia công."
-        elif status == "PAID":
-            step = 2
-            step_name = "Xưởng đã nhận tiền (VIB) - Đang xếp hàng"
-            desc = "Thanh toán thành công! Xưởng đang chuẩn bị phôi và kiểm tra file thiết kế."
-        elif status == "PREPARING":
-            step = 3
-            step_name = "🎨 Đang chuẩn bị phôi & file"
-            desc = "Kỹ thuật viên xưởng đang chuẩn bị phôi và nạp file G-code vào máy laser."
-        elif status == "ENGRAVING":
-            step = 4
-            step_name = "🔥 Máy Laser đang tiến hành khắc"
-            desc = f"Tia laser đang chạy trên phôi. Thời gian gia công dự kiến: ~{o['estimated_minutes']} phút."
-        elif status == "COMPLETED":
-            step = 5
-            step_name = "🎉 Khắc hoàn tất! Sẵn sàng bàn giao"
-            desc = "Sản phẩm đã được khắc xong đẹp mắt. Mời bạn đến xưởng nhận hàng hoặc chờ ship!"
-        elif status == "CANCELLED":
-            step = 0
-            step_name = "❌ Đơn hàng đã hủy"
-            desc = "Đơn hàng đã được hủy."
-        else:
-            step = 3
-            step_name = "🎨 Đang chuẩn bị phôi & thiết kế"
-            desc = "Kỹ thuật viên đang chuẩn bị gá phôi vào máy laser."
+    return {"success": True, "orders": [format_order_for_client(o) for o in orders]}
 
-        step_info.append({
-            "id": o["id"],
-            "created_at": o["created_at"],
-            "customer_name": o["customer_name"],
-            "customer_phone": o["customer_phone"],
-            "customer_note": o["customer_note"],
-            "material_name": o["material_name"],
-            "width_mm": o["width_mm"],
-            "height_mm": o["height_mm"],
-            "total_price": o["total_price"],
-            "status": status,
-            "current_step": step,
-            "step_name": step_name,
-            "step_desc": desc,
-            "estimated_minutes": o["estimated_minutes"],
-            "preview_url": f"/api/storage/previews/{o['id']}_preview.png"
-        })
+@app.post("/api/order/my-orders")
+async def get_my_orders(request: Request):
+    """
+    Lấy danh sách các đơn hàng của khách dựa trên danh sách ID lưu trong LocalStorage máy khách
+    """
+    try:
+        body = await request.json()
+        order_ids = body.get("order_ids", [])
+    except Exception:
+        order_ids = []
 
-    return {"success": True, "orders": step_info}
+    if not order_ids or not isinstance(order_ids, list):
+        return {"success": True, "orders": []}
+
+    clean_ids = [str(oid).strip() for oid in order_ids[:30] if oid]
+    orders = []
+    for oid in clean_ids:
+        o = get_order(oid)
+        if o:
+            orders.append(format_order_for_client(o))
+
+    return {"success": True, "orders": orders}
 
 
 def verify_admin_pin(x_admin_pin: Optional[str] = Header(None)):
@@ -411,7 +437,7 @@ def sync_cloud_orders():
                         cloud_order_copy["preview_path"] = local_preview
                         upsert_order(cloud_order_copy)
     except Exception as e:
-        print("Lỗi đồng bộ Cloud:", e)
+        print("[CLOUD SYNC ERROR]:", e)
 
 def sync_status_to_cloud(order_id: str, new_status: str):
     """Đẩy trạng thái cập nhật lên Render Cloud"""
@@ -423,7 +449,7 @@ def sync_status_to_cloud(order_id: str, new_status: str):
         req = urllib.request.Request(url, data=data, headers={"X-Admin-PIN": ADMIN_PASSWORD})
         urllib.request.urlopen(req, timeout=3)
     except Exception as e:
-        print(f"Lỗi đẩy trạng thái {order_id} lên Cloud:", e)
+        print(f"[CLOUD STATUS SYNC ERROR {order_id}]:", e)
 
 def sync_confirm_payment_to_cloud(order_id: str):
     """Đẩy xác nhận thanh toán lên Render Cloud"""
@@ -434,7 +460,7 @@ def sync_confirm_payment_to_cloud(order_id: str):
         req = urllib.request.Request(url, data=b"", headers={"X-Admin-PIN": ADMIN_PASSWORD})
         urllib.request.urlopen(req, timeout=3)
     except Exception as e:
-        print(f"Lỗi đẩy duyệt tiền {order_id} lên Cloud:", e)
+        print(f"[CLOUD CONFIRM SYNC ERROR {order_id}]:", e)
 
 @app.post("/api/admin/orders/{order_id}/confirm-payment")
 def admin_confirm_payment(order_id: str, authenticated: bool = Depends(verify_admin_pin)):

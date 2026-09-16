@@ -33,8 +33,10 @@
                 </div>
             </div>
             <div class="flex items-center gap-3">
-                <button id="btnOpenTracking" class="text-xs font-bold text-amber-400 hover:text-amber-300 px-3.5 py-2 rounded-xl border border-amber-500/30 hover:border-amber-500/60 bg-amber-500/10 transition-all flex items-center gap-1.5 shadow-sm">
-                    <i class="fa-solid fa-magnifying-glass"></i> Tra cứu đơn hàng
+                <button id="btnOpenCart" class="relative text-xs font-bold text-white hover:text-amber-300 px-3.5 py-2 rounded-xl border border-amber-500/30 hover:border-amber-500/60 bg-slate-800/80 hover:bg-slate-800 transition-all flex items-center gap-2 shadow-sm">
+                    <i class="fa-solid fa-bag-shopping text-amber-400 text-sm"></i>
+                    <span>Đơn của tôi</span>
+                    <span id="cartBadge" class="hidden bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black text-[10px] px-1.5 py-0.2 rounded-full min-w-[18px] text-center shadow">0</span>
                 </button>
             </div>
         </div>
@@ -150,7 +152,67 @@
                     </div>
                 </div>
 
-                <!-- 5. Tùy chọn Hỗ Trợ Thiết Kế & Tư Vấn -->
+                <!-- 5. Thông Tin Nhận Hàng & Địa Chỉ Giao Hàng -->
+                <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 shadow-xl space-y-4">
+                    <label class="block text-sm font-bold text-slate-200 flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 text-xs flex items-center justify-center font-bold">5</span>
+                        Thông tin nhận hàng & Địa chỉ giao
+                    </label>
+
+                    <!-- Lựa chọn hình thức -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="border border-slate-700 rounded-xl p-3 flex items-start gap-2.5 cursor-pointer hover:border-amber-500/50 has-[:checked]:border-amber-500 has-[:checked]:bg-amber-500/10 transition-all">
+                            <input type="radio" name="deliveryMethod" value="shipping" checked class="mt-0.5 text-amber-500 focus:ring-0">
+                            <div>
+                                <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                                    <i class="fa-solid fa-truck-fast text-amber-400"></i> Giao tận nơi
+                                </span>
+                                <span class="text-[10px] text-slate-400 block mt-0.5">Ship bưu điện / xe ôm công nghệ</span>
+                            </div>
+                        </label>
+                        <label class="border border-slate-700 rounded-xl p-3 flex items-start gap-2.5 cursor-pointer hover:border-amber-500/50 has-[:checked]:border-amber-500 has-[:checked]:bg-amber-500/10 transition-all">
+                            <input type="radio" name="deliveryMethod" value="pickup" class="mt-0.5 text-amber-500 focus:ring-0">
+                            <div>
+                                <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                                    <i class="fa-solid fa-store text-emerald-400"></i> Nhận tại xưởng
+                                </span>
+                                <span class="text-[10px] text-slate-400 block mt-0.5">Đến xưởng lấy hàng trực tiếp</span>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Họ Tên & Số Điện Thoại -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-[11px] font-semibold text-slate-300 block mb-1">
+                                Họ & Tên của bạn <span class="text-rose-400">*</span>
+                            </label>
+                            <input type="text" id="recipientName" placeholder="Ví dụ: Nguyễn Văn A..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors">
+                        </div>
+                        <div>
+                            <label class="text-[11px] font-semibold text-slate-300 block mb-1">
+                                Số điện thoại / Zalo <span class="text-rose-400">*</span>
+                            </label>
+                            <input type="tel" id="recipientPhone" placeholder="Ví dụ: 0352445940..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors">
+                        </div>
+                    </div>
+
+                    <!-- Địa Chỉ Giao Hàng Chi Tiết -->
+                    <div id="shippingAddressContainer" class="space-y-1">
+                        <label class="text-[11px] font-semibold text-slate-300 flex items-center justify-between">
+                            <span>Địa chỉ nhận hàng chi tiết <span class="text-rose-400">*</span></span>
+                            <span class="text-[10px] text-slate-400 font-normal">Số nhà, ngõ/đường, Phường/Xã, Quận/Huyện, Tỉnh/TP</span>
+                        </label>
+                        <textarea id="recipientAddress" rows="2" placeholder="Ví dụ: Số 123 Đường Lê Lợi, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors"></textarea>
+                    </div>
+
+                    <div class="text-[11px] text-slate-400 flex items-center gap-1.5 pt-0.5">
+                        <i class="fa-solid fa-floppy-disk text-amber-400/80"></i>
+                        <span>Tự động lưu thông tin trên thiết bị này cho các lần đặt tiếp theo.</span>
+                    </div>
+                </div>
+
+                <!-- 6. Tùy chọn Hỗ Trợ Thiết Kế & Ghi Chú -->
                 <div class="bg-gradient-to-r from-blue-950/40 to-slate-800/60 border border-blue-500/30 rounded-2xl p-5 shadow-xl space-y-3">
                     <label class="flex items-start gap-3 cursor-pointer">
                         <input type="checkbox" id="needDesignCheck" class="mt-1 rounded bg-slate-900 border-slate-600 text-blue-500 focus:ring-0 w-4 h-4">
@@ -162,19 +224,11 @@
                         </div>
                     </label>
 
-                    <div id="designFields" class="hidden pt-3 border-t border-slate-700/60 space-y-3">
-                        <div>
-                            <label class="text-[11px] font-semibold text-slate-300 block mb-1">
-                                Số điện thoại / Zalo của bạn <span class="text-rose-400">*</span>
-                            </label>
-                            <input type="tel" id="customerPhone" placeholder="Ví dụ: 0352445940..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-400">
-                        </div>
-                        <div>
-                            <label class="text-[11px] font-semibold text-slate-300 block mb-1">
-                                Yêu cầu thiết kế cụ thể
-                            </label>
-                            <textarea id="customerNote" rows="2" placeholder="Ví dụ: Xóa phông nền giúp mình, khắc thêm chữ: Chúc mừng sinh nhật..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-400"></textarea>
-                        </div>
+                    <div id="designFields" class="hidden pt-3 border-t border-slate-700/60 space-y-2">
+                        <label class="text-[11px] font-semibold text-slate-300 block">
+                            Ghi chú yêu cầu thiết kế cụ thể:
+                        </label>
+                        <textarea id="customerNote" rows="2" placeholder="Ví dụ: Xóa phông nền giúp mình, khắc thêm chữ: Chúc mừng sinh nhật..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"></textarea>
                     </div>
                 </div>
 
@@ -326,39 +380,57 @@
         </div>
     </div>
 
-    <!-- Modal Tra Cứu Tiến Trình Đơn Hàng 5 Bước -->
-    <div id="trackingModal" class="hidden fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-        <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-2xl w-full p-6 sm:p-7 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
-            <!-- Nút đóng -->
-            <button id="btnCloseTracking" class="absolute top-5 right-5 w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center">
-                <i class="fa-solid fa-xmark"></i>
-            </button>
-
-            <div class="text-center mb-6">
-                <div class="w-12 h-12 mx-auto rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-xl font-bold mb-2 shadow-inner">
-                    <i class="fa-solid fa-timeline"></i>
+    <!-- Modal Giỏ Hàng & Đơn Của Tôi (Cart & Order History) -->
+    <div id="cartModal" class="hidden fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+            <!-- Header modal -->
+            <div class="flex items-center justify-between pb-3.5 border-b border-slate-800 flex-shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 text-slate-950 flex items-center justify-center text-lg font-bold shadow-md shadow-orange-500/20">
+                        <i class="fa-solid fa-bag-shopping"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                            Đơn Hàng Của Tôi
+                            <span id="modalCartCount" class="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold">0 đơn</span>
+                        </h3>
+                        <p class="text-xs text-slate-400">Xem tiến trình 5 bước theo thời gian thực hoặc mở lại mã VietQR</p>
+                    </div>
                 </div>
-                <h3 class="text-lg font-black text-white">Tra Cứu Tiến Trình Khắc Laser</h3>
-                <p class="text-xs text-slate-400 mt-0.5">Theo dõi trực tiếp từng giai đoạn đơn hàng từ lúc đặt đến khi hoàn thiện</p>
+                <button id="btnCloseCart" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition-colors">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
 
-            <!-- Khung tìm kiếm -->
-            <form id="trackingForm" class="flex gap-2 mb-6">
-                <div class="relative flex-1">
-                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-500 text-xs"></i>
-                    <input type="text" id="trackInput" placeholder="Nhập Mã đơn (VD: LS26...) hoặc Số điện thoại của bạn..." required class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white font-semibold focus:outline-none focus:border-amber-500 transition-colors">
-                </div>
-                <button type="submit" id="btnSearchTrack" class="px-5 py-2.5 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-slate-950 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md shadow-orange-500/20 transition-all">
-                    Tra cứu
-                </button>
-            </form>
+            <!-- Thanh tra cứu bổ sung bằng Số Điện Thoại / Mã Đơn -->
+            <div class="py-3 flex-shrink-0 border-b border-slate-800/60">
+                <form id="cartSearchForm" class="flex gap-2">
+                    <div class="relative flex-1">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-2.5 text-slate-500 text-xs"></i>
+                        <input type="text" id="cartSearchInput" placeholder="Nhập Số điện thoại hoặc Mã đơn (VD: LS26...) để tra cứu thêm..." class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors font-medium">
+                    </div>
+                    <button type="submit" class="px-4 py-2 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1.5 shadow transition-all flex-shrink-0">
+                        <i class="fa-solid fa-search"></i> Tra cứu
+                    </button>
+                </form>
+            </div>
 
-            <!-- Vùng hiển thị kết quả -->
-            <div id="trackResults" class="space-y-6 max-h-[60vh] overflow-y-auto pr-1">
-                <div class="text-center text-xs text-slate-500 py-8">
-                    <i class="fa-regular fa-clipboard text-4xl mb-2 block text-slate-600"></i>
-                    Nhập mã đơn hàng hoặc số điện thoại để xem tiến trình gia công
+            <!-- Danh sách đơn hàng (cuộn) -->
+            <div id="myOrdersList" class="flex-1 overflow-y-auto space-y-4 py-3 pr-1 min-h-[260px]">
+                <div class="text-center text-xs text-slate-500 py-12">
+                    <i class="fa-solid fa-circle-notch fa-spin text-amber-400 text-2xl mb-2"></i>
+                    <p>Đang tải danh sách đơn hàng...</p>
                 </div>
+            </div>
+
+            <!-- Footer modal -->
+            <div class="pt-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400 flex-shrink-0">
+                <span class="flex items-center gap-1.5 text-slate-400">
+                    <i class="fa-solid fa-clock-rotate-left text-amber-400"></i> Đơn hàng tự động lưu trên trình duyệt
+                </span>
+                <a href="https://zalo.me/0352445940" target="_blank" class="text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1">
+                    <i class="fa-solid fa-headset"></i> Hotline xưởng: 0352 445 940
+                </a>
             </div>
         </div>
     </div>

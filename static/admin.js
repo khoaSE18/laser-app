@@ -151,11 +151,11 @@ function renderOrders(orders) {
 
         return `
             <tr class="hover:bg-slate-800/40 transition-colors ${isPaid ? 'bg-amber-500/5' : ''}">
-                <!-- Mã Đơn & Ngày -->
-                <td class="py-3.5 px-4">
+                <!-- Mã Đơn & Khách Hàng / Giao Nhận -->
+                <td class="py-3.5 px-4 min-w-[200px]">
                     <span class="font-bold text-amber-400 font-mono text-sm block">${order.id}</span>
                     <span class="text-[11px] text-slate-400">${order.created_at}</span>
-                    <span class="text-[11px] text-slate-300 font-medium block mt-0.5">${order.customer_name || 'Khách Web'}</span>
+                    <span class="text-[11px] text-slate-200 font-bold block mt-0.5">${order.customer_name || 'Khách Web'}</span>
                     
                     <!-- Hiển thị nút chat Zalo nếu khách có để lại số điện thoại -->
                     ${order.customer_phone ? `
@@ -163,6 +163,27 @@ function renderOrders(orders) {
                             <i class="fa-solid fa-comment-dots text-[10px]"></i> Zalo: ${order.customer_phone}
                         </a>
                     ` : ''}
+
+                    <!-- Hình thức giao nhận hàng -->
+                    ${order.delivery_method === 'pickup' ? `
+                        <div class="mt-1">
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                <i class="fa-solid fa-store"></i> Nhận tại xưởng
+                            </span>
+                        </div>
+                    ` : `
+                        <div class="mt-1.5 bg-slate-950/70 p-2 rounded-lg border border-slate-800 space-y-1">
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="text-[10px] font-bold text-amber-400 flex items-center gap-1">
+                                    <i class="fa-solid fa-truck-fast"></i> Giao tận nơi:
+                                </span>
+                                <button onclick="copyAddress(this, '${(order.customer_name || '').replace(/'/g, "\\'")}', '${(order.customer_phone || '').replace(/'/g, "\\'")}', '${(order.shipping_address || '').replace(/'/g, "\\'")}')" class="text-[10px] text-amber-300 hover:text-white bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/40 px-1.5 py-0.5 rounded flex items-center gap-1 font-semibold transition-all shadow-sm" title="Sao chép tên, SĐT và địa chỉ để dán vào Viettel Post / GHTK">
+                                    <i class="fa-solid fa-copy"></i> Sao chép
+                                </button>
+                            </div>
+                            <p class="text-[11px] text-slate-300 font-medium leading-tight select-all">${order.shipping_address || '<span class=\"text-slate-500 italic\">(Chưa nhập địa chỉ)</span>'}</p>
+                        </div>
+                    `}
 
                     <!-- Nhãn yêu cầu thiết kế -->
                     ${order.customer_note && order.customer_note.includes('[CẦN THIẾT KẾ]') ? `
@@ -353,6 +374,26 @@ setInterval(() => {
         fetchOrders();
     }
 }, 5000);
+
+function copyAddress(btn, name, phone, address) {
+    const textToCopy = `${name} - ${phone} - ${address}`.trim();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> Đã chép!`;
+            btn.classList.add("bg-emerald-500/30", "text-emerald-300");
+            setTimeout(() => {
+                btn.innerHTML = originalHTML;
+                btn.classList.remove("bg-emerald-500/30", "text-emerald-300");
+            }, 2000);
+        }).catch(() => {
+            prompt("Nhấn Ctrl+C để sao chép địa chỉ:", textToCopy);
+        });
+    } else {
+        prompt("Nhấn Ctrl+C để sao chép địa chỉ:", textToCopy);
+    }
+}
+window.copyAddress = copyAddress;
 
 document.addEventListener("DOMContentLoaded", () => {
     if (!getAdminPin()) {

@@ -49,19 +49,132 @@ const paymentWaitingBox = document.getElementById("paymentWaitingBox");
 const paymentSuccessBox = document.getElementById("paymentSuccessBox");
 let orderPollTimer = null;
 
+// Thông tin nhận hàng & Địa chỉ giao
+const deliveryMethodRadios = document.querySelectorAll('input[name="deliveryMethod"]');
+const recipientName = document.getElementById("recipientName");
+const recipientPhone = document.getElementById("recipientPhone");
+const shippingAddressContainer = document.getElementById("shippingAddressContainer");
+const recipientAddress = document.getElementById("recipientAddress");
+
+// Giỏ hàng & Đơn của tôi DOM Elements
+const btnOpenCart = document.getElementById("btnOpenCart");
+const cartBadge = document.getElementById("cartBadge");
+const cartModal = document.getElementById("cartModal");
+const btnCloseCart = document.getElementById("btnCloseCart");
+const modalCartCount = document.getElementById("modalCartCount");
+const cartSearchForm = document.getElementById("cartSearchForm");
+const cartSearchInput = document.getElementById("cartSearchInput");
+const myOrdersList = document.getElementById("myOrdersList");
+
 // Tùy chọn Hỗ trợ thiết kế
 const needDesignCheck = document.getElementById("needDesignCheck");
 const designFields = document.getElementById("designFields");
-const customerPhone = document.getElementById("customerPhone");
 const customerNote = document.getElementById("customerNote");
 
-if (needDesignCheck) {
+if (needDesignCheck && designFields) {
     needDesignCheck.addEventListener("change", () => {
         designFields.classList.toggle("hidden", !needDesignCheck.checked);
-        if (needDesignCheck.checked) {
-            customerPhone.focus();
+        if (needDesignCheck.checked && customerNote) {
+            customerNote.focus();
         }
     });
+}
+
+function getSelectedDeliveryMethod() {
+    const checked = document.querySelector('input[name="deliveryMethod"]:checked');
+    return checked ? checked.value : "shipping";
+}
+
+if (deliveryMethodRadios) {
+    deliveryMethodRadios.forEach(radio => {
+        radio.addEventListener("change", () => {
+            const method = getSelectedDeliveryMethod();
+            if (shippingAddressContainer) {
+                shippingAddressContainer.classList.toggle("hidden", method === "pickup");
+            }
+            try {
+                localStorage.setItem("laser_delivery_method", method);
+            } catch (e) {}
+        });
+    });
+}
+
+// Lưu trữ & Tải thông tin người nhận vào localStorage
+function loadRecipientProfile() {
+    try {
+        const savedName = localStorage.getItem("laser_recipient_name");
+        const savedPhone = localStorage.getItem("laser_recipient_phone");
+        const savedAddress = localStorage.getItem("laser_recipient_address");
+        const savedMethod = localStorage.getItem("laser_delivery_method") || "shipping";
+
+        if (savedName && recipientName) recipientName.value = savedName;
+        if (savedPhone && recipientPhone) recipientPhone.value = savedPhone;
+        if (savedAddress && recipientAddress) recipientAddress.value = savedAddress;
+
+        const radio = document.querySelector(`input[name="deliveryMethod"][value="${savedMethod}"]`);
+        if (radio) {
+            radio.checked = true;
+            if (shippingAddressContainer) {
+                shippingAddressContainer.classList.toggle("hidden", savedMethod === "pickup");
+            }
+        }
+    } catch (e) {
+        console.warn("Không thể tải thông tin đã lưu:", e);
+    }
+}
+
+function saveRecipientProfile() {
+    try {
+        if (recipientName) localStorage.setItem("laser_recipient_name", recipientName.value.trim());
+        if (recipientPhone) localStorage.setItem("laser_recipient_phone", recipientPhone.value.trim());
+        if (recipientAddress) localStorage.setItem("laser_recipient_address", recipientAddress.value.trim());
+        localStorage.setItem("laser_delivery_method", getSelectedDeliveryMethod());
+    } catch (e) {
+        console.warn("Không thể lưu thông tin:", e);
+    }
+}
+
+// Quản lý danh sách mã đơn trong giỏ hàng LocalStorage
+function getMyOrderIds() {
+    try {
+        const raw = localStorage.getItem("laser_my_orders");
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+            return [...new Set(parsed.map(x => String(x).trim()).filter(Boolean))];
+        }
+        return [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function addMyOrderId(orderId) {
+    if (!orderId) return;
+    try {
+        const ids = getMyOrderIds();
+        const next = [orderId, ...ids.filter(x => x !== orderId)].slice(0, 50);
+        localStorage.setItem("laser_my_orders", JSON.stringify(next));
+        updateCartBadge();
+    } catch (e) {
+        console.warn("Không thể lưu mã đơn:", e);
+    }
+}
+
+function updateCartBadge() {
+    const ids = getMyOrderIds();
+    const count = ids.length;
+    if (cartBadge) {
+        if (count > 0) {
+            cartBadge.textContent = count > 99 ? "99+" : count;
+            cartBadge.classList.remove("hidden");
+        } else {
+            cartBadge.classList.add("hidden");
+        }
+    }
+    if (modalCartCount) {
+        modalCartCount.textContent = `${count} đơn`;
+    }
 }
 
 
@@ -256,7 +369,37 @@ async function requestPreview() {
 
 // 6. Xử lý Đặt hàng & Tạo mã VietQR
 btnCheckout.addEventListener("click", async () => {
-    if (!currentFile) return;
+    if (!currentFile) {
+        alert("Vui lòng tải ảnh bạn muốn khắc lên trước nhé!");
+        imageInput.click();
+        return;
+    }
+
+    const name = recipientName ? recipientName.value.trim() : "";
+    const phone = recipientPhone ? recipientPhone.value.trim() : "";
+    const method = getSelectedDeliveryMethod();
+    const address = recipientAddress ? recipientAddress.value.trim() : "";
+    const needDesign = needDesignCheck ? needDesignCheck.checked : false;
+    const note = customerNote ? customerNote.value.trim() : "";
+
+    // Kiểm tra thông tin người nhận
+    if (!name) {
+        alert("Quý khách vui lòng nhập Họ & Tên người nhận hàng nhé!");
+        if (recipientName) recipientName.focus();
+        return;
+    }
+
+    if (!phone || phone.length < 9) {
+        alert("Quý khách vui lòng nhập Số điện thoại / Zalo để xưởng tiện liên hệ và gửi hàng!");
+        if (recipientPhone) recipientPhone.focus();
+        return;
+    }
+
+    if (method === "shipping" && !address) {
+        alert("Quý khách vui lòng điền Địa chỉ nhận hàng chi tiết để xưởng ship hàng tận tay nhé!");
+        if (recipientAddress) recipientAddress.focus();
+        return;
+    }
 
     btnCheckout.disabled = true;
     btnCheckout.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Đang tạo file G-code & Mã QR...`;
@@ -264,17 +407,6 @@ btnCheckout.addEventListener("click", async () => {
     const w = parseFloat(widthInput.value) || 100;
     const h = parseFloat(heightInput.value) || 100;
     const mode = document.querySelector('input[name="engraveMode"]:checked').value;
-    const needDesign = needDesignCheck ? needDesignCheck.checked : false;
-    const phone = customerPhone ? customerPhone.value.trim() : "";
-    const note = customerNote ? customerNote.value.trim() : "";
-
-    if (needDesign && !phone) {
-        alert("Quý khách vui lòng nhập Số điện thoại / Zalo để xưởng gửi bản demo duyệt trước khi khắc nhé!");
-        customerPhone.focus();
-        btnCheckout.disabled = false;
-        btnCheckout.innerHTML = `<i class="fa-solid fa-qrcode text-base"></i> ĐẶT HÀNG & QUÉT MÃ VIETQR`;
-        return;
-    }
 
     const formData = new FormData();
     formData.append("image", currentFile);
@@ -282,11 +414,12 @@ btnCheckout.addEventListener("click", async () => {
     formData.append("height_mm", h);
     formData.append("material", selectedMaterial);
     formData.append("mode", mode);
-    formData.append("customer_name", phone ? `Khách ${phone}` : "Khách hàng Web");
+    formData.append("customer_name", name);
     formData.append("customer_phone", phone);
+    formData.append("delivery_method", method);
+    formData.append("shipping_address", method === "shipping" ? address : "");
     formData.append("customer_note", note);
     formData.append("need_design", needDesign ? "true" : "false");
-
 
     try {
         const res = await fetch("/api/order", {
@@ -295,10 +428,14 @@ btnCheckout.addEventListener("click", async () => {
         });
 
         const data = await res.json();
-        if (data.success) {
+        if (data.success && data.order) {
             currentOrderId = data.order.id;
 
-            // Hiển thị thông tin trong Modal
+            // Lưu thông tin người nhận và mã đơn vào LocalStorage
+            saveRecipientProfile();
+            addMyOrderId(currentOrderId);
+
+            // Hiển thị thông tin trong Modal VietQR
             modalOrderId.textContent = currentOrderId;
             qrImage.src = data.vietqr_url;
             bankName.textContent = data.bank_info.bank_id;
@@ -307,22 +444,22 @@ btnCheckout.addEventListener("click", async () => {
             modalAmount.textContent = formatVND(data.pricing.total_price);
             modalTransferContent.textContent = currentOrderId;
 
-            // Mở Modal & Bắt đầu kiểm tra trạng thái duyệt tiền từ xưởng
+            // Mở Modal & Bắt đầu kiểm tra trạng thái duyệt tiền tự động
             paymentModal.classList.remove("hidden");
             startOrderPolling(currentOrderId);
         } else {
-            alert("Không thể tạo đơn hàng, vui lòng thử lại!");
+            alert("Không thể tạo đơn hàng: " + (data.message || "Vui lòng thử lại"));
         }
     } catch (err) {
         console.error("Lỗi đặt hàng:", err);
-        alert("Lỗi kết nối máy chủ");
+        alert("Lỗi kết nối máy chủ, vui lòng thử lại!");
     } finally {
         btnCheckout.disabled = false;
         btnCheckout.innerHTML = `<i class="fa-solid fa-qrcode text-base"></i> ĐẶT HÀNG & QUÉT MÃ VIETQR`;
     }
 });
 
-// Đóng Modal
+// Đóng Modal VietQR
 btnCloseModal.addEventListener("click", () => {
     paymentModal.classList.add("hidden");
     if (orderPollTimer) {
@@ -331,7 +468,7 @@ btnCloseModal.addEventListener("click", () => {
     }
 });
 
-// Tự động kiểm tra xem xưởng đã bấm xác nhận nhận tiền chưa (3 giây/lần)
+// Tự động kiểm tra xem tài khoản VIB đã nhận được tiền chưa (3 giây/lần)
 function startOrderPolling(orderId) {
     if (orderPollTimer) clearInterval(orderPollTimer);
     paymentWaitingBox.classList.remove("hidden");
@@ -343,7 +480,7 @@ function startOrderPolling(orderId) {
             const data = await res.json();
             if (data.success && data.order) {
                 const status = data.order.status;
-                if (status === "PAID" || status === "ENGRAVING" || status === "COMPLETED") {
+                if (status === "PAID" || status === "PREPARING" || status === "ENGRAVING" || status === "COMPLETED") {
                     clearInterval(orderPollTimer);
                     orderPollTimer = null;
                     paymentWaitingBox.classList.add("hidden");
@@ -356,56 +493,120 @@ function startOrderPolling(orderId) {
     }, 3000);
 }
 
+// Mở lại modal VietQR từ đơn trong Giỏ hàng
+function reopenVietQR(orderId, totalAmount, qrUrl) {
+    currentOrderId = orderId;
+    modalOrderId.textContent = orderId;
+    qrImage.src = qrUrl || `https://img.vietqr.io/image/${bankConfig.bank_id || 'VIB'}-${bankConfig.account_no || '352445940'}-compact2.png?amount=${totalAmount}&addInfo=${orderId}&accountName=${encodeURIComponent(bankConfig.account_name || 'HOANG TUAN KHOA')}`;
+    bankName.textContent = bankConfig.bank_id || "VIB (Quốc Tế)";
+    bankAccount.textContent = bankConfig.account_no || "352445940";
+    bankOwner.textContent = bankConfig.account_name || "HOANG TUAN KHOA";
+    modalAmount.textContent = formatVND(totalAmount);
+    modalTransferContent.textContent = orderId;
+
+    if (cartModal) cartModal.classList.add("hidden");
+    paymentModal.classList.remove("hidden");
+    startOrderPolling(orderId);
+}
+window.reopenVietQR = reopenVietQR;
+
 // ==========================================
-// 7. Xử Lý Tra Cứu Tiến Trình Đơn Hàng 5 Bước
+// 7. Xử Lý Giỏ Hàng & Đơn Của Tôi (Cart & Order History)
 // ==========================================
-const btnOpenTracking = document.getElementById("btnOpenTracking");
-const btnCloseTracking = document.getElementById("btnCloseTracking");
-const trackingModal = document.getElementById("trackingModal");
-const trackingForm = document.getElementById("trackingForm");
-const trackInput = document.getElementById("trackInput");
-const trackResults = document.getElementById("trackResults");
+function openCartModal() {
+    if (cartModal) {
+        cartModal.classList.remove("hidden");
+        loadMyOrders();
+    }
+}
+
+function closeCartModal() {
+    if (cartModal) {
+        cartModal.classList.add("hidden");
+    }
+}
+
+if (btnOpenCart) {
+    btnOpenCart.addEventListener("click", openCartModal);
+}
+
+if (btnCloseCart) {
+    btnCloseCart.addEventListener("click", closeCartModal);
+}
+
+// Nút xem tiến trình trong Modal thanh toán thành công
 const btnViewOrderProgress = document.getElementById("btnViewOrderProgress");
-
-if (btnOpenTracking) {
-    btnOpenTracking.addEventListener("click", () => {
-        trackingModal.classList.remove("hidden");
-        setTimeout(() => trackInput.focus(), 100);
-    });
-}
-
-if (btnCloseTracking) {
-    btnCloseTracking.addEventListener("click", () => {
-        trackingModal.classList.add("hidden");
-    });
-}
-
 if (btnViewOrderProgress) {
     btnViewOrderProgress.addEventListener("click", () => {
         paymentModal.classList.add("hidden");
-        trackingModal.classList.remove("hidden");
-        if (currentOrderId) {
-            trackInput.value = currentOrderId;
-            searchOrderTracking(currentOrderId);
-        }
+        openCartModal();
     });
 }
 
-if (trackingForm) {
-    trackingForm.addEventListener("submit", (e) => {
+// Form tra cứu thêm bằng SĐT hoặc Mã đơn
+if (cartSearchForm) {
+    cartSearchForm.addEventListener("submit", (e) => {
         e.preventDefault();
-        const query = trackInput.value.trim();
+        const query = cartSearchInput ? cartSearchInput.value.trim() : "";
         if (query) {
             searchOrderTracking(query);
         }
     });
 }
 
-async function searchOrderTracking(query) {
-    trackResults.innerHTML = `
-        <div class="text-center py-8">
+async function loadMyOrders() {
+    if (!myOrdersList) return;
+
+    myOrdersList.innerHTML = `
+        <div class="text-center py-12 text-slate-400">
             <i class="fa-solid fa-circle-notch fa-spin text-amber-400 text-2xl mb-2"></i>
-            <p class="text-xs text-slate-300">Đang tìm kiếm đơn hàng...</p>
+            <p class="text-xs">Đang tải danh sách đơn hàng của bạn...</p>
+        </div>
+    `;
+
+    const orderIds = getMyOrderIds();
+    if (orderIds.length === 0) {
+        renderEmptyOrders();
+        return;
+    }
+
+    try {
+        const res = await fetch("/api/order/my-orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_ids: orderIds })
+        });
+        const data = await res.json();
+        if (data.success && data.orders && data.orders.length > 0) {
+            renderOrderCards(data.orders);
+        } else {
+            renderEmptyOrders();
+        }
+    } catch (err) {
+        console.error("Lỗi tải đơn hàng:", err);
+        renderEmptyOrders();
+    }
+}
+
+function renderEmptyOrders() {
+    if (!myOrdersList) return;
+    myOrdersList.innerHTML = `
+        <div class="text-center py-12 text-slate-400 space-y-2">
+            <div class="w-14 h-14 mx-auto rounded-full bg-slate-800/80 flex items-center justify-center text-slate-500 text-2xl mb-2 border border-slate-700">
+                <i class="fa-solid fa-bag-shopping"></i>
+            </div>
+            <p class="text-sm font-bold text-slate-300">Chưa có đơn hàng nào được lưu</p>
+            <p class="text-xs text-slate-500 max-w-sm mx-auto">Tải ảnh lên và bấm Đặt hàng để theo dõi tiến trình gia công 5 bước trực tiếp tại đây mà không sợ mất mã!</p>
+        </div>
+    `;
+}
+
+async function searchOrderTracking(query) {
+    if (!myOrdersList) return;
+    myOrdersList.innerHTML = `
+        <div class="text-center py-10 text-slate-400">
+            <i class="fa-solid fa-circle-notch fa-spin text-amber-400 text-2xl mb-2"></i>
+            <p class="text-xs">Đang tra cứu theo từ khóa "${query}"...</p>
         </div>
     `;
 
@@ -414,8 +615,8 @@ async function searchOrderTracking(query) {
         const data = await res.json();
 
         if (!data.success || !data.orders || data.orders.length === 0) {
-            trackResults.innerHTML = `
-                <div class="text-center py-8 text-rose-400 text-xs">
+            myOrdersList.innerHTML = `
+                <div class="text-center py-10 text-rose-400 text-xs">
                     <i class="fa-regular fa-circle-xmark text-3xl mb-2 block"></i>
                     ${data.message || 'Không tìm thấy đơn hàng nào phù hợp!'}
                 </div>
@@ -423,19 +624,26 @@ async function searchOrderTracking(query) {
             return;
         }
 
-        renderTrackingCards(data.orders);
+        // Tự động lưu các đơn tra cứu được vào my_orders để lần sau không phải tìm lại
+        data.orders.forEach(o => addMyOrderId(o.id));
+
+        renderOrderCards(data.orders);
     } catch (err) {
-        trackResults.innerHTML = `
+        myOrdersList.innerHTML = `
             <div class="text-center py-8 text-rose-400 text-xs">
-                Lỗi kết nối máy chủ, vui lòng thử lại!
+                Lỗi kết nối máy chủ khi tra cứu!
             </div>
         `;
     }
 }
 
-function renderTrackingCards(orders) {
-    trackResults.innerHTML = orders.map(order => {
-        const currentStep = order.current_step; // 1 to 5
+function renderOrderCards(orders) {
+    if (!myOrdersList) return;
+
+    myOrdersList.innerHTML = orders.map(order => {
+        const currentStep = order.current_step || 1;
+        const isPending = order.status === "PENDING_PAYMENT";
+        const isPickup = order.delivery_method === "pickup";
 
         const steps = [
             { num: 1, title: "Tiếp Nhận", icon: "fa-clipboard-list" },
@@ -446,24 +654,39 @@ function renderTrackingCards(orders) {
         ];
 
         return `
-            <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg">
-                <!-- Header Đơn -->
+            <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-lg">
+                <!-- Header Đơn Hàng -->
                 <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                     <div>
                         <div class="flex items-center gap-2">
                             <span class="font-extrabold text-amber-400 font-mono text-sm">${order.id}</span>
-                            <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold">${order.created_at}</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold">${order.created_at || ''}</span>
                         </div>
-                        <span class="text-xs text-slate-300 block mt-0.5">${order.customer_name || 'Khách hàng'}</span>
+                        <span class="text-xs text-slate-300 block mt-0.5 font-medium">${order.customer_name || 'Khách hàng'} • ${order.customer_phone || ''}</span>
                     </div>
                     <div class="text-right">
                         <span class="text-xs font-bold text-slate-200 block">${order.material_name} (${order.width_mm}x${order.height_mm}mm)</span>
-                        <span class="text-xs font-black text-emerald-400">${formatVND(order.total_price)}</span>
+                        <span class="text-sm font-black text-emerald-400">${formatVND(order.total_price)}</span>
                     </div>
                 </div>
 
+                <!-- Thông Tin Nhận Hàng -->
+                <div class="bg-slate-900/90 rounded-xl p-2.5 border border-slate-800/80 text-xs flex items-start gap-2">
+                    ${isPickup ? `
+                        <span class="text-emerald-400 font-bold flex items-center gap-1.5 flex-shrink-0">
+                            <i class="fa-solid fa-store text-emerald-400"></i> Nhận tại xưởng:
+                        </span>
+                        <span class="text-slate-300">Khách đến xưởng nhận hàng trực tiếp sau khi hoàn tất</span>
+                    ` : `
+                        <span class="text-amber-400 font-bold flex items-center gap-1.5 flex-shrink-0">
+                            <i class="fa-solid fa-truck-fast text-amber-400"></i> Giao tận nơi:
+                        </span>
+                        <span class="text-slate-200 font-medium">${order.shipping_address || 'Địa chỉ đang cập nhật'}</span>
+                    `}
+                </div>
+
                 <!-- Thanh Tiến Trình 5 Bước (Progress Stepper) -->
-                <div class="py-3 px-2">
+                <div class="py-2 px-1">
                     <div class="flex items-center justify-between relative">
                         <!-- Đường line nối giữa các bước -->
                         <div class="absolute left-4 right-4 top-1/2 -translate-y-1/2 h-1 bg-slate-800 -z-0"></div>
@@ -486,10 +709,10 @@ function renderTrackingCards(orders) {
 
                             return `
                                 <div class="flex flex-col items-center z-10">
-                                    <div class="w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs transition-all ${circleStyle}">
+                                    <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 flex items-center justify-center text-[10px] sm:text-xs transition-all ${circleStyle}">
                                         <i class="fa-solid ${s.icon}"></i>
                                     </div>
-                                    <span class="text-[10px] mt-1.5 whitespace-nowrap text-center ${textStyle}">
+                                    <span class="text-[9px] sm:text-[10px] mt-1 whitespace-nowrap text-center ${textStyle}">
                                         ${s.title}
                                     </span>
                                 </div>
@@ -498,16 +721,29 @@ function renderTrackingCards(orders) {
                     </div>
                 </div>
 
-                <!-- Banner Chi Tiết Trạng Thái Hiện Tại -->
-                <div class="p-3.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-3.5">
+                <!-- Banner Trạng Thái Hiện Tại & Preview Thumbnail -->
+                <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-3">
                     <img src="${order.preview_url}" class="w-12 h-12 object-contain rounded-lg bg-slate-950 border border-slate-700 flex-shrink-0" alt="Preview">
                     <div class="flex-1 min-w-0">
                         <h5 class="text-xs font-bold text-white flex items-center gap-2">
                             <span>${order.step_name}</span>
                             ${currentStep === 4 ? '<span class="w-2 h-2 rounded-full bg-orange-500 animate-ping"></span>' : ''}
                         </h5>
-                        <p class="text-[11px] text-slate-300 mt-0.5 leading-relaxed">${order.step_desc}</p>
+                        <p class="text-[11px] text-slate-400 mt-0.5 leading-relaxed">${order.step_desc}</p>
                     </div>
+                </div>
+
+                <!-- Các Nút Hành Động -->
+                <div class="flex items-center justify-end gap-2 pt-1 border-t border-slate-850">
+                    ${isPending ? `
+                        <button onclick="reopenVietQR('${order.id}', ${order.total_price}, '${order.vietqr_url || ''}')" class="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-slate-950 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md shadow-orange-500/20 transition-all">
+                            <i class="fa-solid fa-qrcode"></i> Quét lại VietQR
+                        </button>
+                    ` : ''}
+
+                    <a href="https://zalo.me/0352445940" target="_blank" rel="noopener noreferrer" class="px-3.5 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all">
+                        <i class="fa-solid fa-comment-dots text-blue-400"></i> Chat Zalo hỏi xưởng
+                    </a>
                 </div>
             </div>
         `;
@@ -519,6 +755,11 @@ function formatVND(amount) {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 }
 
-// Khởi chạy khi load trang
-document.addEventListener("DOMContentLoaded", loadConfig);
+// Khởi chạy khi tải trang
+document.addEventListener("DOMContentLoaded", () => {
+    loadConfig();
+    loadRecipientProfile();
+    updateCartBadge();
+});
+
 

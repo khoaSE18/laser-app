@@ -33,58 +33,81 @@ def init_db():
         estimated_minutes REAL NOT NULL,
         total_price INTEGER NOT NULL,
         status TEXT NOT NULL,
-        payment_ref TEXT NOT NULL
+        payment_ref TEXT NOT NULL,
+        delivery_method TEXT DEFAULT 'shipping',
+        shipping_address TEXT DEFAULT ''
     )
     """)
+    conn.commit()
+
+    # Migration tự động cho database đã tồn tại
+    cursor.execute("PRAGMA table_info(orders)")
+    cols = [row["name"] for row in cursor.fetchall()]
+    if "delivery_method" not in cols:
+        cursor.execute("ALTER TABLE orders ADD COLUMN delivery_method TEXT DEFAULT 'shipping'")
+    if "shipping_address" not in cols:
+        cursor.execute("ALTER TABLE orders ADD COLUMN shipping_address TEXT DEFAULT ''")
     conn.commit()
     conn.close()
 
 def create_order(order_data: dict) -> dict:
     conn = get_db()
     cursor = conn.cursor()
+    data = dict(order_data)
+    data.setdefault("delivery_method", "shipping")
+    data.setdefault("shipping_address", "")
     cursor.execute("""
     INSERT INTO orders (
         id, created_at, customer_name, customer_phone, customer_note,
         original_filename, image_path, preview_path, gcode_path,
         width_mm, height_mm, material_key, material_name, mode,
-        estimated_minutes, total_price, status, payment_ref
+        estimated_minutes, total_price, status, payment_ref,
+        delivery_method, shipping_address
     ) VALUES (
         :id, :created_at, :customer_name, :customer_phone, :customer_note,
         :original_filename, :image_path, :preview_path, :gcode_path,
         :width_mm, :height_mm, :material_key, :material_name, :mode,
-        :estimated_minutes, :total_price, :status, :payment_ref
+        :estimated_minutes, :total_price, :status, :payment_ref,
+        :delivery_method, :shipping_address
     )
-    """, order_data)
+    """, data)
     conn.commit()
     conn.close()
-    return order_data
+    return data
 
 def upsert_order(order_data: dict) -> dict:
     conn = get_db()
     cursor = conn.cursor()
+    data = dict(order_data)
+    data.setdefault("delivery_method", "shipping")
+    data.setdefault("shipping_address", "")
     cursor.execute("""
     INSERT INTO orders (
         id, created_at, customer_name, customer_phone, customer_note,
         original_filename, image_path, preview_path, gcode_path,
         width_mm, height_mm, material_key, material_name, mode,
-        estimated_minutes, total_price, status, payment_ref
+        estimated_minutes, total_price, status, payment_ref,
+        delivery_method, shipping_address
     ) VALUES (
         :id, :created_at, :customer_name, :customer_phone, :customer_note,
         :original_filename, :image_path, :preview_path, :gcode_path,
         :width_mm, :height_mm, :material_key, :material_name, :mode,
-        :estimated_minutes, :total_price, :status, :payment_ref
+        :estimated_minutes, :total_price, :status, :payment_ref,
+        :delivery_method, :shipping_address
     )
     ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
         customer_name = excluded.customer_name,
         customer_phone = excluded.customer_phone,
         customer_note = excluded.customer_note,
+        delivery_method = excluded.delivery_method,
+        shipping_address = excluded.shipping_address,
         gcode_path = excluded.gcode_path,
         preview_path = excluded.preview_path
-    """, order_data)
+    """, data)
     conn.commit()
     conn.close()
-    return order_data
+    return data
 
 def get_order(order_id: str):
     conn = get_db()
