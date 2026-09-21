@@ -897,6 +897,9 @@ function enterOperatorMode() {
 
     fetchOperatorOrders();
     initGRBLController();
+    setTimeout(() => {
+        initLaserVisualizer();
+    }, 60);
     if (operatorPollTimer) clearInterval(operatorPollTimer);
     operatorPollTimer = setInterval(fetchOperatorOrders, 5000);
 }
@@ -1315,9 +1318,22 @@ window.clearAllOperatorOrders = clearAllOperatorOrders;
    BỘ ĐIỀU KHIỂN MÁY LASER TRỰC TIẾP TRÊN WEB (WEB SERIAL CNC)
    ========================================================================== */
 let laserCNC = null;
+let laserVisualizer = null;
 let currentJogStep = 10;
 let loadedWebOrder = null;
 let loadedGcodeContent = "";
+
+function initLaserVisualizer() {
+    if (typeof LaserVisualizer === "undefined") {
+        console.warn("Chưa nạp laser_visualizer.js");
+        return;
+    }
+    if (!laserVisualizer) {
+        laserVisualizer = new LaserVisualizer("laserVisualizerCanvas");
+    } else {
+        laserVisualizer.resize();
+    }
+}
 
 // DOM Elements cho Web CNC
 const cncConnBadge = document.getElementById("cncConnBadge");
@@ -1392,6 +1408,9 @@ function initGRBLController() {
         if (cncCoords) {
             cncCoords.textContent = `X: ${summary.pos.x.toFixed(2)} mm | Y: ${summary.pos.y.toFixed(2)} mm`;
         }
+        if (laserVisualizer) {
+            laserVisualizer.updateLaserPosition(summary.pos.x, summary.pos.y, summary.spindle > 0);
+        }
         if (cncStateBadge) {
             cncStateBadge.textContent = summary.state.toUpperCase();
             if (summary.state === "Idle") {
@@ -1413,6 +1432,10 @@ function initGRBLController() {
         if (engraveProgressLines) engraveProgressLines.textContent = `Dòng: ${prog.currentLine.toLocaleString()} / ${prog.totalLines.toLocaleString()}`;
         if (engraveProgressTime) {
             engraveProgressTime.textContent = `Đã chạy: ${formatSeconds(prog.elapsedSeconds)} | Còn lại: ~${formatSeconds(prog.remainingSeconds)}`;
+        }
+
+        if (laserVisualizer) {
+            laserVisualizer.setProgress(prog.currentLine, prog.totalLines);
         }
 
         if (prog.isPaused) {
@@ -1503,6 +1526,9 @@ async function setZeroLaser() {
     }
     if (confirm("Đặt vị trí hiện tại làm gốc tọa độ (0, 0) của phôi?")) {
         await laserCNC.setZero();
+        if (laserVisualizer) {
+            laserVisualizer.updateLaserPosition(0, 0);
+        }
     }
 }
 
@@ -1512,6 +1538,9 @@ async function goToZeroLaser() {
         return;
     }
     await laserCNC.goToZero();
+    if (laserVisualizer) {
+        laserVisualizer.updateLaserPosition(0, 0);
+    }
 }
 
 async function unlockAlarmLaser() {
@@ -1542,6 +1571,7 @@ async function toggleFocusLaser() {
 
 async function loadOrderForWebEngrave(orderId) {
     if (!laserCNC) initGRBLController();
+    initLaserVisualizer();
 
     if (loadedOrderTitle) loadedOrderTitle.textContent = `Đang tải mã đơn ${orderId}...`;
     if (loadedOrderMeta) loadedOrderMeta.textContent = "Đang nạp file G-code vào bộ nhớ...";
@@ -1587,6 +1617,17 @@ async function loadOrderForWebEngrave(orderId) {
         if (loadedOrderDim) loadedOrderDim.textContent = `📐 ${order.width_mm} x ${order.height_mm} mm`;
         if (loadedOrderLines) loadedOrderLines.textContent = `📝 ${lines.length.toLocaleString()} dòng lệnh`;
         if (loadedOrderFrameBtnContainer) loadedOrderFrameBtnContainer.classList.remove("hidden");
+
+        // 4. Nạp thông số phôi và đường chạy dao vào LaserVisualizer Canvas
+        if (laserVisualizer) {
+            const previewUrl = `/api/storage/previews/${order.id}_preview.png`;
+            laserVisualizer.setWorkpiece(order.width_mm, order.height_mm, previewUrl);
+            laserVisualizer.loadGcode(loadedGcodeContent);
+            const dimBadge = document.getElementById("visualizerDimBadge");
+            if (dimBadge) {
+                dimBadge.textContent = `${order.width_mm} x ${order.height_mm} mm`;
+            }
+        }
 
         updateStartEngraveButtonState();
 
@@ -1638,6 +1679,11 @@ async function startWebEngraving() {
 
     if (!confirm(`Xác nhận bắt đầu khắc đơn hàng [${loadedWebOrder.id}]?\nĐảm bảo phôi đã được đặt vào vị trí và đã set gốc (0,0) chuẩn xác.`)) {
         return;
+    }
+
+    // Làm mới vệt khắc mô phỏng trên visualizer
+    if (laserVisualizer) {
+        laserVisualizer.clearTrace();
     }
 
     if (startEngraveGroup) startEngraveGroup.classList.add("hidden");
@@ -1694,6 +1740,48 @@ window.pauseWebEngraving = pauseWebEngraving;
 window.resumeWebEngraving = resumeWebEngraving;
 window.emergencyStopWebEngraving = emergencyStopWebEngraving;
 
+/* ==========================================================================
+   CÁC HÀM TIỆN ÍCH CHO MÀN HÌNH VISUALIZER 2D
+   ========================================================================== */
+function visualizerFitView() {
+    if (laserVisualizer) {
+        laserVisualizer.fitView();
+    }
+}
 
+function visualizerToggleGrid() {
+    if (!laserVisualizer) return;
+    const isOn = laserVisualizer.toggleGrid();
+    const btn = document.getElementById("btnToggleGrid");
+    if (btn) {
+        if (isOn) {
+            btn.classList.remove("opacity-50");
+        } else {
+            btn.classList.add("opacity-50");
+        }
+    }
+}
 
+function visualizerToggleToolpaths() {
+    if (!laserVisualizer) return;
+    const isOn = laserVisualizer.toggleToolpaths();
+    const btn = document.getElementById("btnToggleToolpaths");
+    if (btn) {
+        if (isOn) {
+            btn.classList.remove("opacity-50");
+        } else {
+            btn.classList.add("opacity-50");
+        }
+    }
+}
 
+function visualizerClearTrace() {
+    if (laserVisualizer) {
+        laserVisualizer.clearTrace();
+    }
+}
+
+window.visualizerFitView = visualizerFitView;
+window.visualizerToggleGrid = visualizerToggleGrid;
+window.visualizerToggleToolpaths = visualizerToggleToolpaths;
+window.visualizerClearTrace = visualizerClearTrace;

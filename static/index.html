@@ -452,8 +452,8 @@
                 <!-- Thân Card: Chia 2 cột (Jogging D-Pad và Khắc Đơn Hàng) -->
                 <div class="p-4 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-                    <!-- Cột 1: Cụm Căn Phôi & Di Chuyển Jogging (5 cột trên Desktop) -->
-                    <div class="lg:col-span-5 bg-slate-900/70 p-4 rounded-2xl border border-slate-750 space-y-4">
+                    <!-- Cột 1: Cụm Căn Phôi & Di Chuyển Jogging (4 cột trên Desktop) -->
+                    <div class="lg:col-span-4 bg-slate-900/70 p-4 rounded-2xl border border-slate-750 space-y-4">
                         <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
                             <h4 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
                                 <i class="fa-solid fa-arrows-up-down-left-right text-amber-400"></i> Điều Hướng Đầu Khắc (Jogging)
@@ -516,8 +516,48 @@
                         </div>
                     </div>
 
-                    <!-- Cột 2: Khối Khắc Trực Tiếp Đơn Hàng (7 cột trên Desktop) -->
-                    <div class="lg:col-span-7 bg-slate-900/70 p-4 rounded-2xl border border-slate-750 flex flex-col justify-between space-y-4">
+                    <!-- Cột 2: Màn Hình Visualizer 2D + Khối Khắc Trực Tiếp Đơn Hàng (8 cột trên Desktop) -->
+                    <div class="lg:col-span-8 bg-slate-900/70 p-4 rounded-2xl border border-slate-750 flex flex-col justify-between space-y-4">
+                        
+                        <!-- MÀN HÌNH CHIẾU KHẮC LASER 2D THỜI GIAN THỰC -->
+                        <div class="space-y-2.5">
+                            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                                <div class="flex items-center gap-2">
+                                    <h4 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                                        <i class="fa-solid fa-crosshairs text-rose-500 animate-pulse"></i> Màn Hình Chiếu Khắc Laser 2D
+                                    </h4>
+                                    <span id="visualizerDimBadge" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-amber-300 font-mono border border-slate-700">100 x 80 mm</span>
+                                </div>
+                                <div class="flex items-center gap-1 text-xs">
+                                    <button onclick="visualizerFitView()" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 text-[11px] font-medium flex items-center gap-1 transition-all cursor-pointer" title="Căn chỉnh vừa vặn khung hình">
+                                        <i class="fa-solid fa-compress"></i> Vừa Khung
+                                    </button>
+                                    <button id="btnToggleGrid" onclick="visualizerToggleGrid()" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 text-[11px] font-medium flex items-center gap-1 transition-all cursor-pointer" title="Bật/Tắt lưới milimet CNC">
+                                        <i class="fa-solid fa-border-all text-amber-400"></i> Lưới mm
+                                    </button>
+                                    <button id="btnToggleToolpaths" onclick="visualizerToggleToolpaths()" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 text-[11px] font-medium flex items-center gap-1 transition-all cursor-pointer" title="Ẩn/Hiện đường chạy dao G0/G1">
+                                        <i class="fa-solid fa-route text-cyan-400"></i> Đường Dao
+                                    </button>
+                                    <button onclick="visualizerClearTrace()" class="px-2 py-1 bg-slate-800 hover:bg-rose-500/20 text-slate-300 hover:text-rose-300 rounded-lg border border-slate-700 hover:border-rose-500/30 text-[11px] font-medium flex items-center gap-1 transition-all cursor-pointer" title="Xóa vệt khắc mô phỏng">
+                                        <i class="fa-solid fa-eraser"></i> Xóa Vết
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Khung Canvas Visualizer -->
+                            <div class="relative w-full rounded-xl overflow-hidden bg-[#090d16] border border-slate-800 shadow-inner flex items-center justify-center">
+                                <canvas id="laserVisualizerCanvas" class="w-full block"></canvas>
+                                <!-- Chú thích góc dưới canvas -->
+                                <div class="absolute bottom-2 left-3 flex items-center gap-2.5 text-[10px] text-slate-400 font-mono bg-slate-950/80 px-2 py-0.5 rounded-md border border-slate-800 pointer-events-none">
+                                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"></span> Gốc (0,0)</span>
+                                    <span class="flex items-center gap-1"><span class="w-2 h-0.5 bg-sky-400 inline-block"></span> G0 Không Tải</span>
+                                    <span class="flex items-center gap-1"><span class="w-2 h-0.5 bg-orange-500 inline-block"></span> G1 Khắc</span>
+                                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping inline-block"></span> Tia Laser</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Khối Nạp Đơn Hàng & Khắc Trực Tiếp -->
                         <div>
                             <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
                                 <h4 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
@@ -842,8 +882,10 @@
 
     <!-- Driver Điều Khiển Máy Laser Web Serial -->
     <script src="/static/grbl_serial.js?v=20260921_v1"></script>
+    <!-- Màn Hình Chiếu Khắc Laser 2D Canvas -->
+    <script src="/static/laser_visualizer.js?v=20260921_v1"></script>
     <!-- Script App Chính -->
-    <script src="/static/app.js?v=20260921_v9"></script>
+    <script src="/static/app.js?v=20260921_v10"></script>
 </body>
 </html>
 
