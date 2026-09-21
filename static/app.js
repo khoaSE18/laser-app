@@ -1408,8 +1408,12 @@ function initGRBLController() {
         if (cncCoords) {
             cncCoords.textContent = `X: ${summary.pos.x.toFixed(2)} mm | Y: ${summary.pos.y.toFixed(2)} mm`;
         }
-        if (laserVisualizer) {
-            laserVisualizer.updateLaserPosition(summary.pos.x, summary.pos.y, summary.spindle > 0);
+        if (laserVisualizer && summary && summary.pos) {
+            try {
+                laserVisualizer.updateLaserPosition(summary.pos.x, summary.pos.y, summary.spindle > 0);
+            } catch (e) {
+                console.warn("Visualizer pos update error:", e);
+            }
         }
         if (cncStateBadge) {
             cncStateBadge.textContent = summary.state.toUpperCase();
@@ -1434,8 +1438,10 @@ function initGRBLController() {
             engraveProgressTime.textContent = `Đã chạy: ${formatSeconds(prog.elapsedSeconds)} | Còn lại: ~${formatSeconds(prog.remainingSeconds)}`;
         }
 
-        if (laserVisualizer) {
-            laserVisualizer.setProgress(prog.currentLine, prog.totalLines);
+        if (laserVisualizer && typeof laserVisualizer.setProgressPercent === "function") {
+            try {
+                laserVisualizer.setProgressPercent(prog.percent);
+            } catch (e) {}
         }
 
         if (prog.isPaused) {
@@ -1620,12 +1626,16 @@ async function loadOrderForWebEngrave(orderId) {
 
         // 4. Nạp thông số phôi và đường chạy dao vào LaserVisualizer Canvas
         if (laserVisualizer) {
-            const previewUrl = `/api/storage/previews/${order.id}_preview.png`;
-            laserVisualizer.setWorkpiece(order.width_mm, order.height_mm, previewUrl);
-            laserVisualizer.loadGcode(loadedGcodeContent);
-            const dimBadge = document.getElementById("visualizerDimBadge");
-            if (dimBadge) {
-                dimBadge.textContent = `${order.width_mm} x ${order.height_mm} mm`;
+            try {
+                const previewUrl = `/api/storage/previews/${order.id}_preview.png`;
+                laserVisualizer.setWorkpiece(order.width_mm, order.height_mm, previewUrl);
+                laserVisualizer.loadGcode(loadedGcodeContent);
+                const dimBadge = document.getElementById("visualizerDimBadge");
+                if (dimBadge) {
+                    dimBadge.textContent = `${order.width_mm} x ${order.height_mm} mm`;
+                }
+            } catch (e) {
+                console.warn("Lỗi nạp visualizer:", e);
             }
         }
 

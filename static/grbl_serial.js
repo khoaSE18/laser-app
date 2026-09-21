@@ -67,6 +67,8 @@ class GRBLController {
                 flowControl: "none"
             });
 
+            this.encoder = new TextEncoder();
+            this.writer = this.port.writable.getWriter();
             this.isConnected = true;
             this.log("Đã kết nối cổng USB với tốc độ " + baudRate + " baud.", "success");
 
@@ -112,16 +114,18 @@ class GRBLController {
 
         try {
             if (this.reader) {
-                await this.reader.cancel();
+                await this.reader.cancel().catch(() => {});
                 this.reader.releaseLock();
                 this.reader = null;
             }
             if (this.writer) {
-                this.writer.releaseLock();
+                try {
+                    this.writer.releaseLock();
+                } catch (e) {}
                 this.writer = null;
             }
             if (this.port) {
-                await this.port.close();
+                await this.port.close().catch(() => {});
                 this.port = null;
             }
         } catch (e) {
@@ -246,7 +250,11 @@ class GRBLController {
         }
 
         if (this.onStatusUpdate) {
-            this.onStatusUpdate(this.getStatusSummary());
+            try {
+                this.onStatusUpdate(this.getStatusSummary());
+            } catch (err) {
+                console.warn("Lỗi onStatusUpdate callback:", err);
+            }
         }
     }
 
@@ -285,12 +293,9 @@ class GRBLController {
      * Gửi ký tự điều khiển tức thì (Real-time command: ?, !, ~, \x18)
      */
     async sendRealtime(char) {
-        if (!this.isConnected || !this.port || !this.port.writable) return;
+        if (!this.isConnected || !this.writer) return;
         try {
-            const encoder = new TextEncoder();
-            const writer = this.port.writable.getWriter();
-            await writer.write(encoder.encode(char));
-            writer.releaseLock();
+            await this.writer.write(this.encoder.encode(char));
         } catch (err) {
             // Lỗi nhẹ có thể bỏ qua khi đang đọc ghi đồng thời
         }
@@ -300,13 +305,10 @@ class GRBLController {
      * Gửi chuỗi thô kèm kết thúc dòng \n
      */
     async sendRaw(text) {
-        if (!this.isConnected || !this.port || !this.port.writable) {
+        if (!this.isConnected || !this.writer) {
             throw new Error("Chưa kết nối cổng USB.");
         }
-        const encoder = new TextEncoder();
-        const writer = this.port.writable.getWriter();
-        await writer.write(encoder.encode(text));
-        writer.releaseLock();
+        await this.writer.write(this.encoder.encode(text));
     }
 
     /**
@@ -471,6 +473,14 @@ class GRBLController {
 
         this.log(`🚀 BẮT ĐẦU KHẮC: Tổng cộng ${this.totalLines.toLocaleString()} dòng lệnh G-code.`, "success");
 
+        // Giảm tần suất status polling xuống 1s khi đang streaming để tối đa băng thông truyền G-code
+        this.stopStatusPolling();
+        this.pollTimer = setInterval(() => {
+            if (this.isConnected && !this.isPaused) {
+                this.sendRealtime("?");
+            }
+        }, 1000);
+
         try {
             while (this.currentLineIdx < this.totalLines && this.isStreaming) {
                 // Xử lý khi người dùng bấm Tạm dừng
@@ -506,6 +516,7 @@ class GRBLController {
         } finally {
             this.isStreaming = false;
             this.isPaused = false;
+            this.startStatusPolling(); // Khôi phục polling 250ms khi nhàn rỗi
             this.notifyProgress();
         }
     }
@@ -553,20 +564,24 @@ class GRBLController {
 
     notifyProgress() {
         if (this.onProgress) {
-            const percent = this.totalLines > 0 ? (this.currentLineIdx / this.totalLines) * 100 : 0;
-            const elapsedMs = this.startTime ? (Date.now() - this.startTime) : 0;
-            const linesPerMs = elapsedMs > 0 ? (this.currentLineIdx / elapsedMs) : 0;
-            const remainingMs = linesPerMs > 0 ? ((this.totalLines - this.currentLineIdx) / linesPerMs) : 0;
+            try {
+                const percent = this.totalLines > 0 ? (this.currentLineIdx / this.totalLines) * 100 : 0;
+                const elapsedMs = this.startTime ? (Date.now() - this.startTime) : 0;
+                const linesPerMs = elapsedMs > 0 ? (this.currentLineIdx / elapsedMs) : 0;
+                const remainingMs = linesPerMs > 0 ? ((this.totalLines - this.currentLineIdx) / linesPerMs) : 0;
 
-            this.onProgress({
-                isStreaming: this.isStreaming,
-                isPaused: this.isPaused,
-                percent: Math.min(100, percent),
-                currentLine: this.currentLineIdx,
-                totalLines: this.totalLines,
-                elapsedSeconds: Math.floor(elapsedMs / 1000),
-                remainingSeconds: Math.floor(remainingMs / 1000)
-            });
+                this.onProgress({
+                    isStreaming: this.isStreaming,
+                    isPaused: this.isPaused,
+                    percent: Math.min(100, percent),
+                    currentLine: this.currentLineIdx,
+                    totalLines: this.totalLines,
+                    elapsedSeconds: Math.floor(elapsedMs / 1000),
+                    remainingSeconds: Math.floor(remainingMs / 1000)
+                });
+            } catch (err) {
+                console.warn("Lỗi callback onProgress:", err);
+            }
         }
     }
 

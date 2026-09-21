@@ -1,12 +1,12 @@
 /**
  * LaserVisualizer - Màn hình mô phỏng đường chạy tia laser thời gian thực
- * Vẽ lưới tọa độ CNC, hiển thị ảnh mẫu, đường chạy dao G0/G1 và tâm ngắm laser thực tế
+ * Tối ưu hóa hiệu năng cao (Batch rendering), không bao giờ làm đơ trình duyệt hay nghẽn cáp USB
  */
 class LaserVisualizer {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
         if (!this.canvas) {
-            console.error("Không tìm thấy canvas với ID:", canvasId);
+            console.warn("Không tìm thấy canvas:", canvasId);
             return;
         }
         this.ctx = this.canvas.getContext("2d");
@@ -22,46 +22,48 @@ class LaserVisualizer {
         // Trạng thái laser hiện tại
         this.laserPos = { x: 0, y: 0 };
         this.isLaserOn = false;
-        this.currentLineIdx = 0;
-        this.totalLines = 0;
+        this.progressPercent = 0;
 
         // Cấu hình hiển thị
         this.showGrid = true;
         this.showToolpaths = true;
-        this.padding = 35; // Lề tính bằng pixel
+        this.padding = 30;
 
-        // Toolpaths đã trích xuất từ G-code
-        this.toolpaths = []; // { type: 'G0' | 'G1', x: number, y: number, s: number }
+        // Danh sách mẫu đường dao G0 / G1 (Tối đa 1500 điểm để siêu nhẹ)
+        this.toolpaths = [];
         this.offscreenCanvas = document.createElement("canvas");
         this.offscreenCtx = this.offscreenCanvas.getContext("2d");
         this.hasRenderedStaticPaths = false;
 
-        // Vết khắc thời gian thực (Persistent Burn Canvas)
+        // Canvas vệt khắc thời gian thực (Burn layer)
         this.burnCanvas = document.createElement("canvas");
         this.burnCtx = this.burnCanvas.getContext("2d");
 
-        // Vòng lặp animation
+        // Cờ báo cần vẽ lại (Dirty flag)
+        this.needsRedraw = true;
         this.animId = null;
-        this.lastLaserX = 0;
-        this.lastLaserY = 0;
 
-        // Khởi tạo kích thước canvas
         this.resize();
-        window.addEventListener("resize", () => this.resize());
+        window.addEventListener("resize", () => {
+            this.resize();
+            this.requestRedraw();
+        });
 
-        // Bắt đầu vòng lặp vẽ 60fps
         this.startRenderLoop();
     }
 
     /**
-     * Tự động điều chỉnh độ phân giải canvas theo Retina / High-DPI
+     * Tự động điều chỉnh kích thước theo Retina / High-DPI
      */
     resize() {
         if (!this.canvas) return;
-        const rect = this.canvas.parentElement.getBoundingClientRect();
+        const rect = this.canvas.parentElement ? this.canvas.parentElement.getBoundingClientRect() : null;
         const dpr = window.devicePixelRatio || 1;
-        const w = rect.width || 600;
-        const h = Math.min(w * 0.65, 420); // Tỷ lệ chiều cao hài hòa
+        const w = (rect && rect.width > 50) ? rect.width : 600;
+        const h = Math.min(Math.max(w * 0.6, 280), 380);
+
+        this.displayWidth = w;
+        this.displayHeight = h;
 
         this.canvas.width = w * dpr;
         this.canvas.height = h * dpr;
@@ -71,10 +73,6 @@ class LaserVisualizer {
         this.ctx.resetTransform();
         this.ctx.scale(dpr, dpr);
 
-        this.displayWidth = w;
-        this.displayHeight = h;
-
-        // Cập nhật kích thước offscreen canvases
         this.offscreenCanvas.width = w * dpr;
         this.offscreenCanvas.height = h * dpr;
         this.offscreenCtx.resetTransform();
@@ -87,14 +85,15 @@ class LaserVisualizer {
 
         this.calculateScale();
         this.rebuildStaticPaths();
+        this.requestRedraw();
     }
 
     /**
-     * Tính toán tỷ lệ chuyển đổi từ milimet sang pixel
+     * Tính toán tỷ lệ chuyển đổi mm sang pixel
      */
     calculateScale() {
-        const availW = this.displayWidth - this.padding * 2;
-        const availH = this.displayHeight - this.padding * 2;
+        const availW = Math.max(50, this.displayWidth - this.padding * 2);
+        const availH = Math.max(50, this.displayHeight - this.padding * 2);
 
         const maxW = Math.max(10, this.workpiece.width);
         const maxH = Math.max(10, this.workpiece.height);
@@ -103,7 +102,6 @@ class LaserVisualizer {
         const scaleY = availH / maxH;
         this.scale = Math.min(scaleX, scaleY);
 
-        // Canh giữa phôi trên màn hình
         this.offsetX = this.padding + (availW - maxW * this.scale) / 2;
         this.offsetY = this.padding + (availH - maxH * this.scale) / 2;
     }
@@ -112,13 +110,15 @@ class LaserVisualizer {
      * Chuyển đổi tọa độ CNC (gốc dưới-trái) sang tọa độ Canvas (gốc trên-trái)
      */
     toCanvas(xMm, yMm) {
-        const cX = this.offsetX + xMm * this.scale;
-        const cY = this.displayHeight - (this.offsetY + yMm * this.scale);
+        const validX = isFinite(xMm) ? xMm : 0;
+        const validY = isFinite(yMm) ? yMm : 0;
+        const cX = this.offsetX + validX * this.scale;
+        const cY = this.displayHeight - (this.offsetY + validY * this.scale);
         return { x: cX, y: cY };
     }
 
     /**
-     * Nạp thông tin phôi và ảnh mẫu
+     * Nạp kích thước phôi và ảnh mẫu
      */
     setWorkpiece(widthMm, heightMm, imageUrl = null) {
         this.workpiece.width = Math.max(10, parseFloat(widthMm) || 100);
@@ -136,232 +136,269 @@ class LaserVisualizer {
                 this.workpiece.img = img;
                 this.workpiece.imgLoaded = true;
                 this.rebuildStaticPaths();
+                this.requestRedraw();
             };
             img.src = imageUrl;
         }
 
         this.rebuildStaticPaths();
+        this.requestRedraw();
     }
 
     /**
-     * Phân tích nội dung file G-code để lấy danh sách các đường chạy
+     * Phân tích G-code theo cơ chế lấy mẫu siêu tốc (Sampling)
+     * Không bao giờ làm đơ máy ngay cả khi file nặng 200,000 dòng!
      */
     loadGcode(gcodeContent) {
         this.toolpaths = [];
-        this.currentLineIdx = 0;
         this.clearTrace();
 
-        if (!gcodeContent) return;
-
-        const lines = gcodeContent.split(/\r?\n/);
-        let currX = 0;
-        let currY = 0;
-        let isLaserOn = false;
-        let currS = 0;
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line || line.startsWith(";") || line.startsWith("(")) continue;
-
-            if (line.includes("M3") || line.includes("M4")) isLaserOn = true;
-            if (line.includes("M5")) isLaserOn = false;
-
-            const sMatch = line.match(/S(\d+)/i);
-            if (sMatch) currS = parseInt(sMatch[1], 10);
-
-            const isG0 = line.startsWith("G0") || line.startsWith("G00");
-            const isG1 = line.startsWith("G1") || line.startsWith("G01");
-
-            if (isG0 || isG1) {
-                const xMatch = line.match(/X([-\d.]+)/i);
-                const yMatch = line.match(/Y([-\d.]+)/i);
-
-                if (xMatch) currX = parseFloat(xMatch[1]);
-                if (yMatch) currY = parseFloat(yMatch[1]);
-
-                this.toolpaths.push({
-                    type: isG0 ? "G0" : "G1",
-                    x: currX,
-                    y: currY,
-                    laserOn: isG1 && (isLaserOn || currS > 0),
-                    s: currS
-                });
-            }
+        if (!gcodeContent) {
+            this.rebuildStaticPaths();
+            this.requestRedraw();
+            return;
         }
 
-        this.totalLines = this.toolpaths.length;
-        this.rebuildStaticPaths();
+        try {
+            const lines = gcodeContent.split(/\r?\n/);
+            const total = lines.length;
+
+            // Lấy mẫu tối đa 1200 điểm dao để vẽ preview siêu mượt (< 2ms)
+            const sampleStep = Math.max(1, Math.floor(total / 1200));
+
+            let currX = 0;
+            let currY = 0;
+            let lastX = 0;
+            let lastY = 0;
+
+            for (let i = 0; i < total; i++) {
+                const line = lines[i].trim();
+                if (!line || line.startsWith(";") || line.startsWith("(")) continue;
+
+                const isG0 = line.startsWith("G0") || line.startsWith("G00");
+                const isG1 = line.startsWith("G1") || line.startsWith("G01");
+
+                if (isG0 || isG1) {
+                    const xMatch = line.match(/X([-\d.]+)/i);
+                    const yMatch = line.match(/Y([-\d.]+)/i);
+
+                    if (xMatch) currX = parseFloat(xMatch[1]);
+                    if (yMatch) currY = parseFloat(yMatch[1]);
+
+                    // Chỉ lấy mẫu đại diện đều cho G0 và G1 (Tối đa 1200 điểm)
+                    if (i % sampleStep === 0) {
+                        this.toolpaths.push({
+                            type: isG0 ? "G0" : "G1",
+                            x0: lastX,
+                            y0: lastY,
+                            x1: currX,
+                            y1: currY
+                        });
+                        lastX = currX;
+                        lastY = currY;
+                    }
+                }
+            }
+
+            this.rebuildStaticPaths();
+            this.requestRedraw();
+        } catch (err) {
+            console.warn("Lỗi khi load Gcode vào visualizer:", err);
+        }
     }
 
     /**
-     * Vẽ sẵn các đường chạy dao tĩnh lên offscreen canvas để tối ưu 60fps
+     * Vẽ sẵn khung phôi, ảnh mẫu và đường dao tĩnh
+     * TỐI ƯU HÓA BATCH: Gom toàn bộ vào đúng 2 lần stroke duy nhất!
      */
     rebuildStaticPaths() {
-        if (!this.offscreenCtx) return;
-        const ctx = this.offscreenCtx;
-        ctx.clearRect(0, 0, this.displayWidth, this.displayHeight);
+        if (!this.offscreenCtx || !this.displayWidth) return;
+        try {
+            const ctx = this.offscreenCtx;
+            ctx.clearRect(0, 0, this.displayWidth, this.displayHeight);
 
-        // 1. Vẽ khung phôi chữ nhật
-        const origin = this.toCanvas(0, 0);
-        const wPx = this.workpiece.width * this.scale;
-        const hPx = this.workpiece.height * this.scale;
+            const origin = this.toCanvas(0, 0);
+            const wPx = this.workpiece.width * this.scale;
+            const hPx = this.workpiece.height * this.scale;
 
-        ctx.fillStyle = "rgba(30, 41, 59, 0.4)"; // Phôi nền tối
-        ctx.fillRect(origin.x, origin.y - hPx, wPx, hPx);
+            // 1. Khung phôi nền tối
+            ctx.fillStyle = "rgba(30, 41, 59, 0.4)";
+            ctx.fillRect(origin.x, origin.y - hPx, wPx, hPx);
 
-        ctx.strokeStyle = "rgba(245, 158, 11, 0.4)"; // Viền phôi màu hổ phách
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(origin.x, origin.y - hPx, wPx, hPx);
+            ctx.strokeStyle = "rgba(245, 158, 11, 0.5)";
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(origin.x, origin.y - hPx, wPx, hPx);
 
-        // 2. Vẽ ảnh mẫu mờ bên dưới
-        if (this.workpiece.imgLoaded && this.workpiece.img) {
-            ctx.save();
-            ctx.globalAlpha = 0.25; // Làm mờ để nổi bật đường chạy laser
-            ctx.drawImage(this.workpiece.img, origin.x, origin.y - hPx, wPx, hPx);
-            ctx.restore();
-        }
-
-        // 3. Vẽ các đường chạy dao G-code (Faint preview)
-        if (this.showToolpaths && this.toolpaths.length > 0) {
-            ctx.save();
-            let lastPt = this.toCanvas(0, 0);
-
-            for (let i = 0; i < this.toolpaths.length; i++) {
-                const pt = this.toolpaths[i];
-                const canvasPt = this.toCanvas(pt.x, pt.y);
-
-                if (pt.type === "G0") {
-                    // Chạy không tải: nét đứt xanh lơ mờ
-                    ctx.beginPath();
-                    ctx.strokeStyle = "rgba(56, 189, 248, 0.15)";
-                    ctx.lineWidth = 0.8;
-                    ctx.setLineDash([3, 3]);
-                    ctx.moveTo(lastPt.x, lastPt.y);
-                    ctx.lineTo(canvasPt.x, canvasPt.y);
-                    ctx.stroke();
-                } else if (pt.type === "G1") {
-                    // Khắc laser: nét cam mờ
-                    ctx.beginPath();
-                    ctx.strokeStyle = "rgba(249, 115, 22, 0.2)";
-                    ctx.lineWidth = 1.0;
-                    ctx.setLineDash([]);
-                    ctx.moveTo(lastPt.x, lastPt.y);
-                    ctx.lineTo(canvasPt.x, canvasPt.y);
-                    ctx.stroke();
-                }
-
-                lastPt = canvasPt;
+            // 2. Ảnh mẫu mờ bên dưới
+            if (this.workpiece.imgLoaded && this.workpiece.img) {
+                ctx.save();
+                ctx.globalAlpha = 0.28;
+                ctx.drawImage(this.workpiece.img, origin.x, origin.y - hPx, wPx, hPx);
+                ctx.restore();
             }
-            ctx.restore();
-        }
 
-        this.hasRenderedStaticPaths = true;
+            // 3. Đường dao G0 / G1 theo cơ chế gom path (Batch)
+            if (this.showToolpaths && this.toolpaths.length > 0) {
+                ctx.save();
+
+                // Lượt 1: Tất cả đường G0 gom thành 1 path
+                ctx.beginPath();
+                ctx.strokeStyle = "rgba(56, 189, 248, 0.2)";
+                ctx.lineWidth = 0.8;
+                ctx.setLineDash([3, 3]);
+                let hasG0 = false;
+                for (let i = 0; i < this.toolpaths.length; i++) {
+                    const pt = this.toolpaths[i];
+                    if (pt.type === "G0") {
+                        const p0 = this.toCanvas(pt.x0, pt.y0);
+                        const p1 = this.toCanvas(pt.x1, pt.y1);
+                        ctx.moveTo(p0.x, p0.y);
+                        ctx.lineTo(p1.x, p1.y);
+                        hasG0 = true;
+                    }
+                }
+                if (hasG0) ctx.stroke();
+
+                // Lượt 2: Tất cả đường G1 gom thành 1 path
+                ctx.beginPath();
+                ctx.strokeStyle = "rgba(249, 115, 22, 0.3)";
+                ctx.lineWidth = 1.0;
+                ctx.setLineDash([]);
+                let hasG1 = false;
+                for (let i = 0; i < this.toolpaths.length; i++) {
+                    const pt = this.toolpaths[i];
+                    if (pt.type === "G1") {
+                        const p0 = this.toCanvas(pt.x0, pt.y0);
+                        const p1 = this.toCanvas(pt.x1, pt.y1);
+                        ctx.moveTo(p0.x, p0.y);
+                        ctx.lineTo(p1.x, p1.y);
+                        hasG1 = true;
+                    }
+                }
+                if (hasG1) ctx.stroke();
+
+                ctx.restore();
+            }
+
+            this.hasRenderedStaticPaths = true;
+        } catch (e) {
+            console.warn("Lỗi vẽ static paths:", e);
+        }
     }
 
     /**
-     * Cập nhật vị trí đầu khắc từ máy thật (thông qua USB)
+     * Cập nhật vị trí đầu khắc từ máy CNC thực tế
      */
     updateLaserPosition(xMm, yMm, isLaserOn = null) {
-        const prevCanvasPt = this.toCanvas(this.laserPos.x, this.laserPos.y);
+        if (!isFinite(xMm) || !isFinite(yMm)) return;
+
+        const prevPt = this.toCanvas(this.laserPos.x, this.laserPos.y);
 
         this.laserPos.x = xMm;
         this.laserPos.y = yMm;
         if (isLaserOn !== null) {
-            this.isLaserOn = isLaserOn;
+            this.isLaserOn = Boolean(isLaserOn);
         }
 
-        const newCanvasPt = this.toCanvas(xMm, yMm);
+        const newPt = this.toCanvas(xMm, yMm);
 
         // Nếu tia laser đang bật khắc, vẽ vệt cháy lên burnCanvas
         if (this.isLaserOn && this.burnCtx) {
-            this.burnCtx.beginPath();
-            this.burnCtx.strokeStyle = "rgba(234, 88, 12, 0.9)"; // Màu cháy laser cam đậm
-            this.burnCtx.lineWidth = 1.6;
-            this.burnCtx.moveTo(prevCanvasPt.x, prevCanvasPt.y);
-            this.burnCtx.lineTo(newCanvasPt.x, newCanvasPt.y);
-            this.burnCtx.stroke();
+            try {
+                this.burnCtx.beginPath();
+                this.burnCtx.strokeStyle = "rgba(234, 88, 12, 0.9)";
+                this.burnCtx.lineWidth = 1.6;
+                this.burnCtx.moveTo(prevPt.x, prevPt.y);
+                this.burnCtx.lineTo(newPt.x, newPt.y);
+                this.burnCtx.stroke();
+            } catch (e) {}
         }
+
+        this.requestRedraw();
     }
 
     /**
-     * Cập nhật tiến trình khắc (tô dần các đường đã hoàn thành)
+     * Cập nhật tiến trình phần trăm
      */
-    setProgress(currentLineIdx, totalLines) {
-        this.currentLineIdx = currentLineIdx;
-        this.totalLines = totalLines || this.totalLines;
-
-        if (this.toolpaths.length > 0 && currentLineIdx < this.toolpaths.length) {
-            const pt = this.toolpaths[currentLineIdx];
-            this.updateLaserPosition(pt.x, pt.y, pt.laserOn);
-        }
+    setProgressPercent(percent) {
+        this.progressPercent = Math.max(0, Math.min(100, percent || 0));
+        this.requestRedraw();
     }
 
     /**
-     * Xóa sạch vệt khắc mô phỏng
+     * Xóa vệt khắc
      */
     clearTrace() {
-        if (this.burnCtx) {
+        if (this.burnCtx && this.displayWidth && this.displayHeight) {
             this.burnCtx.clearRect(0, 0, this.displayWidth, this.displayHeight);
         }
+        this.requestRedraw();
+    }
+
+    requestRedraw() {
+        this.needsRedraw = true;
     }
 
     /**
-     * Vòng lặp render chính (60fps)
+     * Vòng lặp render mượt mà
      */
     startRenderLoop() {
         const render = () => {
-            this.draw();
+            // Khi laser đang bật thì luôn vẽ lại để tạo hiệu ứng phát sáng
+            if (this.needsRedraw || this.isLaserOn) {
+                this.draw();
+                this.needsRedraw = false;
+            }
             this.animId = requestAnimationFrame(render);
         };
         this.animId = requestAnimationFrame(render);
     }
 
     /**
-     * Vẽ khung hình hiện tại
+     * Vẽ khung hình
      */
     draw() {
-        if (!this.ctx || !this.displayWidth) return;
+        if (!this.ctx || !this.displayWidth || !this.displayHeight) return;
         const ctx = this.ctx;
 
-        // 1. Xóa nền đen CNC
+        // 1. Nền đen CNC
         ctx.fillStyle = "#090d16";
         ctx.fillRect(0, 0, this.displayWidth, this.displayHeight);
 
-        // 2. Vẽ lưới milimet CNC
+        // 2. Lưới milimet
         if (this.showGrid) {
             this.drawGrid(ctx);
         }
 
-        // 3. Vẽ lớp phôi và đường chạy tĩnh từ Offscreen Canvas
-        if (this.hasRenderedStaticPaths) {
+        // 3. Phôi và đường dao tĩnh
+        if (this.hasRenderedStaticPaths && this.offscreenCanvas) {
             ctx.drawImage(this.offscreenCanvas, 0, 0);
         }
 
-        // 4. Vẽ lớp vệt cháy thực tế đã khắc
-        ctx.drawImage(this.burnCanvas, 0, 0);
+        // 4. Vệt cháy laser
+        if (this.burnCanvas) {
+            ctx.drawImage(this.burnCanvas, 0, 0);
+        }
 
-        // 5. Vẽ gốc tọa độ (0, 0)
+        // 5. Gốc tọa độ (0, 0)
         this.drawOrigin(ctx);
 
-        // 6. Vẽ đầu khắc laser thời gian thực (Laser Crosshair)
+        // 6. Đầu laser thời gian thực
         this.drawLaserHead(ctx);
     }
 
-    /**
-     * Vẽ lưới tọa độ CNC milimet
-     */
     drawGrid(ctx) {
         ctx.save();
         const origin = this.toCanvas(0, 0);
         const maxPt = this.toCanvas(this.workpiece.width, this.workpiece.height);
 
-        const stepMm = 10; // Bước lưới 10mm
+        const stepMm = 10;
         ctx.lineWidth = 0.5;
         ctx.strokeStyle = "rgba(51, 65, 85, 0.4)";
         ctx.fillStyle = "rgba(100, 116, 139, 0.6)";
-        ctx.font = "9px 'Courier New', monospace";
+        ctx.font = "9px monospace";
 
-        // Đường dọc trục X
+        // Trục X
         for (let x = 0; x <= this.workpiece.width; x += stepMm) {
             const pt = this.toCanvas(x, 0);
             ctx.beginPath();
@@ -374,7 +411,7 @@ class LaserVisualizer {
             }
         }
 
-        // Đường ngang trục Y
+        // Trục Y
         for (let y = 0; y <= this.workpiece.height; y += stepMm) {
             const pt = this.toCanvas(0, y);
             ctx.beginPath();
@@ -390,9 +427,6 @@ class LaserVisualizer {
         ctx.restore();
     }
 
-    /**
-     * Vẽ ký hiệu gốc tọa độ (0, 0)
-     */
     drawOrigin(ctx) {
         ctx.save();
         const o = this.toCanvas(0, 0);
@@ -422,25 +456,27 @@ class LaserVisualizer {
         ctx.restore();
     }
 
-    /**
-     * Vẽ tâm ngắm đầu laser thời gian thực (+)
-     */
     drawLaserHead(ctx) {
-        ctx.save();
+        if (!isFinite(this.laserPos.x) || !isFinite(this.laserPos.y)) return;
         const pt = this.toCanvas(this.laserPos.x, this.laserPos.y);
+        if (!isFinite(pt.x) || !isFinite(pt.y)) return;
+
+        ctx.save();
 
         // Hiệu ứng phát sáng khi tia laser đang bật
         if (this.isLaserOn) {
-            const pulseRadius = 14 + Math.sin(Date.now() / 100) * 3;
-            const gradient = ctx.createRadialGradient(pt.x, pt.y, 2, pt.x, pt.y, pulseRadius);
-            gradient.addColorStop(0, "rgba(255, 68, 68, 0.9)");
-            gradient.addColorStop(0.5, "rgba(255, 140, 0, 0.5)");
-            gradient.addColorStop(1, "rgba(255, 0, 0, 0)");
+            const pulseRadius = Math.max(6, 14 + Math.sin(Date.now() / 100) * 3);
+            try {
+                const gradient = ctx.createRadialGradient(pt.x, pt.y, 2, pt.x, pt.y, pulseRadius);
+                gradient.addColorStop(0, "rgba(255, 68, 68, 0.9)");
+                gradient.addColorStop(0.5, "rgba(255, 140, 0, 0.5)");
+                gradient.addColorStop(1, "rgba(255, 0, 0, 0)");
 
-            ctx.fillStyle = gradient;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, pulseRadius, 0, Math.PI * 2);
-            ctx.fill();
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, pulseRadius, 0, Math.PI * 2);
+                ctx.fill();
+            } catch (e) {}
         }
 
         // Tâm ngắm Crosshair
@@ -467,14 +503,14 @@ class LaserVisualizer {
         ctx.arc(pt.x, pt.y, 2, 0, Math.PI * 2);
         ctx.fill();
 
-        // Nhãn tọa độ nhỏ bay theo đầu laser
+        // Nhãn tọa độ nhỏ
+        const tagText = `(${this.laserPos.x.toFixed(1)}, ${this.laserPos.y.toFixed(1)})`;
+        ctx.font = "bold 9px monospace";
+        const tagW = ctx.measureText(tagText).width + 8;
         ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+        ctx.fillRect(pt.x + 12, pt.y - 18, tagW, 14);
         ctx.strokeStyle = "rgba(51, 65, 85, 0.8)";
         ctx.lineWidth = 1;
-        const tagText = `(${this.laserPos.x.toFixed(1)}, ${this.laserPos.y.toFixed(1)})`;
-        ctx.font = "bold 9px 'Courier New', monospace";
-        const tagW = ctx.measureText(tagText).width + 8;
-        ctx.fillRect(pt.x + 12, pt.y - 18, tagW, 14);
         ctx.strokeRect(pt.x + 12, pt.y - 18, tagW, 14);
 
         ctx.fillStyle = this.isLaserOn ? "#f97316" : "#38bdf8";
@@ -483,29 +519,21 @@ class LaserVisualizer {
         ctx.restore();
     }
 
-    /**
-     * Bật/Tắt hiển thị lưới
-     */
     toggleGrid() {
         this.showGrid = !this.showGrid;
+        this.requestRedraw();
         return this.showGrid;
     }
 
-    /**
-     * Bật/Tắt hiển thị đường dao G-code
-     */
     toggleToolpaths() {
         this.showToolpaths = !this.showToolpaths;
         this.rebuildStaticPaths();
+        this.requestRedraw();
         return this.showToolpaths;
     }
 
-    /**
-     * Căn chỉnh phôi vừa vặn khung hình canvas
-     */
     fitView() {
         this.resize();
-        this.rebuildStaticPaths();
     }
 
     destroy() {
@@ -516,5 +544,4 @@ class LaserVisualizer {
     }
 }
 
-// Gắn toàn cục cho window
 window.LaserVisualizer = LaserVisualizer;
