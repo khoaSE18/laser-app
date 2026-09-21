@@ -896,6 +896,7 @@ function enterOperatorMode() {
     }
 
     fetchOperatorOrders();
+    initGRBLController();
     if (operatorPollTimer) clearInterval(operatorPollTimer);
     operatorPollTimer = setInterval(fetchOperatorOrders, 5000);
 }
@@ -1128,9 +1129,14 @@ function renderOperatorOrders(orders) {
                                 <i class="fa-solid fa-lock text-[10px] mr-1"></i> Chưa duyệt tiền
                             </button>
                         ` : `
+                            <!-- Nút Khắc Trực Tiếp Trên Web qua USB -->
+                            <button onclick="loadOrderForWebEngrave('${order.id}')" class="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow-md shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer" title="Nạp đơn này vào bảng điều khiển Web để khắc trực tiếp qua cáp USB">
+                                <i class="fa-solid fa-bolt text-[10px]"></i> Khắc Web
+                            </button>
+
                             <!-- Đã thanh toán: Mở khóa nút LaserGRBL -->
-                            <button onclick="openLaserGRBL('${order.id}')" class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-md shadow-orange-500/20 hover:scale-105 active:scale-95 transition-all">
-                                <i class="fa-solid fa-play text-[10px]"></i> Mở LaserGRBL
+                            <button onclick="openLaserGRBL('${order.id}')" class="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-slate-950 font-black text-xs flex items-center gap-1 shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer" title="Mở file này bằng phần mềm LaserGRBL trên Windows">
+                                <i class="fa-solid fa-play text-[10px]"></i> LaserGRBL
                             </button>
                         `}
 
@@ -1304,6 +1310,390 @@ window.removeMyOrderId = removeMyOrderId;
 window.clearAllMyOrders = clearAllMyOrders;
 window.deleteOperatorOrder = deleteOperatorOrder;
 window.clearAllOperatorOrders = clearAllOperatorOrders;
+
+/* ==========================================================================
+   BỘ ĐIỀU KHIỂN MÁY LASER TRỰC TIẾP TRÊN WEB (WEB SERIAL CNC)
+   ========================================================================== */
+let laserCNC = null;
+let currentJogStep = 10;
+let loadedWebOrder = null;
+let loadedGcodeContent = "";
+
+// DOM Elements cho Web CNC
+const cncConnBadge = document.getElementById("cncConnBadge");
+const cncStateBadge = document.getElementById("cncStateBadge");
+const cncCoords = document.getElementById("cncCoords");
+const cncBaudRate = document.getElementById("cncBaudRate");
+const btnConnectUsb = document.getElementById("btnConnectUsb");
+const btnDisconnectUsb = document.getElementById("btnDisconnectUsb");
+const btnFocusLaser = document.getElementById("btnFocusLaser");
+const btnFocusLaserText = document.getElementById("btnFocusLaserText");
+const cncLastLog = document.getElementById("cncLastLog");
+const cncLogDot = document.getElementById("cncLogDot");
+
+// DOM Elements nạp đơn và khắc
+const activeOrderBadge = document.getElementById("activeOrderBadge");
+const loadedOrderBox = document.getElementById("loadedOrderBox");
+const loadedOrderEmptyIcon = document.getElementById("loadedOrderEmptyIcon");
+const loadedOrderThumb = document.getElementById("loadedOrderThumb");
+const loadedOrderTitle = document.getElementById("loadedOrderTitle");
+const loadedOrderMeta = document.getElementById("loadedOrderMeta");
+const loadedOrderSpecs = document.getElementById("loadedOrderSpecs");
+const loadedOrderDim = document.getElementById("loadedOrderDim");
+const loadedOrderLines = document.getElementById("loadedOrderLines");
+const loadedOrderFrameBtnContainer = document.getElementById("loadedOrderFrameBtnContainer");
+
+const engraveProgressContainer = document.getElementById("engraveProgressContainer");
+const engraveProgressStatus = document.getElementById("engraveProgressStatus");
+const engraveProgressPercent = document.getElementById("engraveProgressPercent");
+const engraveProgressBar = document.getElementById("engraveProgressBar");
+const engraveProgressLines = document.getElementById("engraveProgressLines");
+const engraveProgressTime = document.getElementById("engraveProgressTime");
+
+const startEngraveGroup = document.getElementById("startEngraveGroup");
+const btnStartWebEngrave = document.getElementById("btnStartWebEngrave");
+const streamingControlGroup = document.getElementById("streamingControlGroup");
+const btnPauseEngrave = document.getElementById("btnPauseEngrave");
+const btnResumeEngrave = document.getElementById("btnResumeEngrave");
+
+function initGRBLController() {
+    if (typeof GRBLController === "undefined") {
+        console.warn("Chưa nạp grbl_serial.js");
+        return;
+    }
+
+    laserCNC = new GRBLController();
+
+    // Callback khi kết nối / ngắt kết nối
+    laserCNC.onConnectionChange = (connected, info) => {
+        if (connected) {
+            if (cncConnBadge) {
+                cncConnBadge.className = "px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1";
+                cncConnBadge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Đã kết nối MKS DLC32';
+            }
+            if (btnConnectUsb) btnConnectUsb.classList.add("hidden");
+            if (btnDisconnectUsb) btnDisconnectUsb.classList.remove("hidden");
+            if (cncStateBadge) cncStateBadge.classList.remove("hidden");
+            updateStartEngraveButtonState();
+        } else {
+            if (cncConnBadge) {
+                cncConnBadge.className = "px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1";
+                cncConnBadge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Chưa kết nối USB';
+            }
+            if (btnConnectUsb) btnConnectUsb.classList.remove("hidden");
+            if (btnDisconnectUsb) btnDisconnectUsb.classList.add("hidden");
+            if (cncStateBadge) cncStateBadge.classList.add("hidden");
+            updateStartEngraveButtonState();
+        }
+    };
+
+    // Callback cập nhật tọa độ và trạng thái máy
+    laserCNC.onStatusUpdate = (summary) => {
+        if (cncCoords) {
+            cncCoords.textContent = `X: ${summary.pos.x.toFixed(2)} mm | Y: ${summary.pos.y.toFixed(2)} mm`;
+        }
+        if (cncStateBadge) {
+            cncStateBadge.textContent = summary.state.toUpperCase();
+            if (summary.state === "Idle") {
+                cncStateBadge.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30";
+            } else if (summary.state === "Run") {
+                cncStateBadge.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse";
+            } else if (summary.state === "Alarm") {
+                cncStateBadge.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30";
+            } else {
+                cncStateBadge.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700";
+            }
+        }
+    };
+
+    // Callback tiến trình khắc
+    laserCNC.onProgress = (prog) => {
+        if (engraveProgressBar) engraveProgressBar.style.width = `${prog.percent}%`;
+        if (engraveProgressPercent) engraveProgressPercent.textContent = `${prog.percent.toFixed(1)}%`;
+        if (engraveProgressLines) engraveProgressLines.textContent = `Dòng: ${prog.currentLine.toLocaleString()} / ${prog.totalLines.toLocaleString()}`;
+        if (engraveProgressTime) {
+            engraveProgressTime.textContent = `Đã chạy: ${formatSeconds(prog.elapsedSeconds)} | Còn lại: ~${formatSeconds(prog.remainingSeconds)}`;
+        }
+
+        if (prog.isPaused) {
+            if (btnPauseEngrave) btnPauseEngrave.classList.add("hidden");
+            if (btnResumeEngrave) btnResumeEngrave.classList.remove("hidden");
+            if (engraveProgressStatus) engraveProgressStatus.textContent = "Đang tạm dừng khắc";
+        } else if (prog.isStreaming) {
+            if (btnPauseEngrave) btnPauseEngrave.classList.remove("hidden");
+            if (btnResumeEngrave) btnResumeEngrave.classList.add("hidden");
+            if (engraveProgressStatus) engraveProgressStatus.textContent = "Đang khắc sản phẩm...";
+        } else {
+            // Khi dừng hoặc kết thúc
+            if (startEngraveGroup) startEngraveGroup.classList.remove("hidden");
+            if (streamingControlGroup) streamingControlGroup.classList.add("hidden");
+            if (prog.currentLine === prog.totalLines && prog.totalLines > 0) {
+                if (engraveProgressStatus) engraveProgressStatus.textContent = "🎉 Hoàn tất khắc 100%!";
+                if (loadedWebOrder) {
+                    updateOrderStatus(loadedWebOrder.id, "COMPLETED");
+                }
+            }
+        }
+    };
+
+    // Callback ghi log
+    laserCNC.onLog = (msg, type) => {
+        if (cncLastLog) cncLastLog.textContent = msg;
+        if (cncLogDot) {
+            if (type === "success") cncLogDot.className = "w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0";
+            else if (type === "warning") cncLogDot.className = "w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0";
+            else if (type === "error") cncLogDot.className = "w-1.5 h-1.5 rounded-full bg-rose-500 flex-shrink-0";
+            else cncLogDot.className = "w-1.5 h-1.5 rounded-full bg-cyan-400 flex-shrink-0";
+        }
+    };
+}
+
+async function connectUsbLaser() {
+    if (!laserCNC) initGRBLController();
+    if (!GRBLController.isSupported()) {
+        alert("Trình duyệt này không hỗ trợ Web Serial. Vui lòng mở trang web trên Google Chrome hoặc Microsoft Edge trên máy tính để kết nối USB máy Laser.");
+        return;
+    }
+
+    const baud = cncBaudRate ? cncBaudRate.value : 115200;
+    try {
+        await laserCNC.connect(baud);
+    } catch (err) {
+        if (err.name !== "NotFoundError") {
+            alert("Không thể kết nối cổng USB: " + err.message);
+        }
+    }
+}
+
+async function disconnectUsbLaser() {
+    if (laserCNC) {
+        await laserCNC.disconnect();
+    }
+}
+
+function setJogStep(step) {
+    currentJogStep = parseFloat(step) || 10;
+    document.querySelectorAll(".jog-step-btn").forEach(btn => {
+        if (parseFloat(btn.dataset.step) === currentJogStep) {
+            btn.className = "jog-step-btn active px-2 py-0.5 rounded font-bold bg-amber-500/30 text-amber-300 border border-amber-500/40";
+        } else {
+            btn.className = "jog-step-btn px-2 py-0.5 rounded font-semibold text-slate-400 hover:text-white";
+        }
+    });
+}
+
+async function jogLaser(dirX, dirY) {
+    if (!laserCNC || !laserCNC.isConnected) {
+        alert("Vui lòng bấm 'Kết Nối Cáp USB' với máy Laser trước khi di chuyển!");
+        return;
+    }
+    const dx = dirX * currentJogStep;
+    const dy = dirY * currentJogStep;
+    try {
+        await laserCNC.jog(dx, dy, 2500);
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+async function setZeroLaser() {
+    if (!laserCNC || !laserCNC.isConnected) {
+        alert("Chưa kết nối cáp USB với máy!");
+        return;
+    }
+    if (confirm("Đặt vị trí hiện tại làm gốc tọa độ (0, 0) của phôi?")) {
+        await laserCNC.setZero();
+    }
+}
+
+async function goToZeroLaser() {
+    if (!laserCNC || !laserCNC.isConnected) {
+        alert("Chưa kết nối cáp USB với máy!");
+        return;
+    }
+    await laserCNC.goToZero();
+}
+
+async function unlockAlarmLaser() {
+    if (!laserCNC || !laserCNC.isConnected) {
+        alert("Chưa kết nối cáp USB với máy!");
+        return;
+    }
+    await laserCNC.unlockAlarm();
+}
+
+async function toggleFocusLaser() {
+    if (!laserCNC || !laserCNC.isConnected) {
+        alert("Chưa kết nối cáp USB với máy!");
+        return;
+    }
+    const isOn = await laserCNC.toggleFocusLaser();
+    if (btnFocusLaserText) {
+        btnFocusLaserText.textContent = isOn ? "Tắt Tia Đỏ" : "Soi Tia Đỏ";
+    }
+    if (btnFocusLaser) {
+        if (isOn) {
+            btnFocusLaser.classList.add("bg-amber-500/30", "border-amber-400", "text-amber-300");
+        } else {
+            btnFocusLaser.classList.remove("bg-amber-500/30", "border-amber-400", "text-amber-300");
+        }
+    }
+}
+
+async function loadOrderForWebEngrave(orderId) {
+    if (!laserCNC) initGRBLController();
+
+    if (loadedOrderTitle) loadedOrderTitle.textContent = `Đang tải mã đơn ${orderId}...`;
+    if (loadedOrderMeta) loadedOrderMeta.textContent = "Đang nạp file G-code vào bộ nhớ...";
+
+    try {
+        // 1. Tải thông tin đơn hàng
+        const resOrders = await operatorFetch("/api/admin/orders");
+        const dataOrders = await resOrders.json();
+        const order = (dataOrders.orders || []).find(o => o.id === orderId);
+
+        if (!order) {
+            alert("Không tìm thấy đơn hàng!");
+            return;
+        }
+
+        loadedWebOrder = order;
+
+        // 2. Tải nội dung file G-code
+        const resGcode = await fetch(`/api/admin/orders/${orderId}/download-gcode`);
+        if (!resGcode.ok) {
+            throw new Error("Không thể tải file G-code từ server");
+        }
+        loadedGcodeContent = await resGcode.text();
+
+        const lines = loadedGcodeContent.split(/\r?\n/).filter(l => l.trim().length > 0 && !l.startsWith(";"));
+
+        // 3. Cập nhật giao diện khối nạp
+        if (activeOrderBadge) {
+            activeOrderBadge.innerHTML = `<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">Đã nạp [${order.id}]</span>`;
+        }
+        if (loadedOrderEmptyIcon) loadedOrderEmptyIcon.classList.add("hidden");
+        if (loadedOrderThumb) {
+            loadedOrderThumb.src = `/api/storage/previews/${order.id}_preview.png`;
+            loadedOrderThumb.classList.remove("hidden");
+        }
+        if (loadedOrderTitle) {
+            loadedOrderTitle.textContent = `${order.id} - ${order.customer_name || 'Khách Web'}`;
+        }
+        if (loadedOrderMeta) {
+            loadedOrderMeta.textContent = `${order.material_name} | Giá: ${formatVND(order.total_price)} | ~${order.estimated_minutes} phút`;
+        }
+        if (loadedOrderSpecs) loadedOrderSpecs.classList.remove("hidden");
+        if (loadedOrderDim) loadedOrderDim.textContent = `📐 ${order.width_mm} x ${order.height_mm} mm`;
+        if (loadedOrderLines) loadedOrderLines.textContent = `📝 ${lines.length.toLocaleString()} dòng lệnh`;
+        if (loadedOrderFrameBtnContainer) loadedOrderFrameBtnContainer.classList.remove("hidden");
+
+        updateStartEngraveButtonState();
+
+        // Cuộn màn hình mượt mà lên khối Web CNC Controller
+        const cncCard = document.getElementById("cncConnBadge");
+        if (cncCard) {
+            cncCard.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+
+        laserCNC.log(`Đã nạp đơn ${order.id} (${lines.length.toLocaleString()} dòng G-code). Sẵn sàng khắc!`, "success");
+    } catch (err) {
+        alert("Lỗi khi nạp đơn hàng: " + err.message);
+    }
+}
+
+function updateStartEngraveButtonState() {
+    if (!btnStartWebEngrave) return;
+    const canEngrave = (laserCNC && laserCNC.isConnected && loadedGcodeContent && !laserCNC.isStreaming);
+    btnStartWebEngrave.disabled = !canEngrave;
+    if (canEngrave) {
+        btnStartWebEngrave.classList.remove("opacity-40", "cursor-not-allowed");
+    } else {
+        btnStartWebEngrave.classList.add("opacity-40", "cursor-not-allowed");
+    }
+}
+
+async function frameLoadedOrder() {
+    if (!loadedWebOrder) return;
+    if (!laserCNC || !laserCNC.isConnected) {
+        alert("Vui lòng kết nối cáp USB trước khi soi viền!");
+        return;
+    }
+    try {
+        await laserCNC.frameBox(loadedWebOrder.width_mm, loadedWebOrder.height_mm);
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+async function startWebEngraving() {
+    if (!loadedWebOrder || !loadedGcodeContent) {
+        alert("Vui lòng bấm 'Khắc Web' tại một đơn hàng bên dưới để nạp file G-code trước!");
+        return;
+    }
+    if (!laserCNC || !laserCNC.isConnected) {
+        alert("Chưa kết nối cổng USB với máy MKS DLC32!");
+        return;
+    }
+
+    if (!confirm(`Xác nhận bắt đầu khắc đơn hàng [${loadedWebOrder.id}]?\nĐảm bảo phôi đã được đặt vào vị trí và đã set gốc (0,0) chuẩn xác.`)) {
+        return;
+    }
+
+    if (startEngraveGroup) startEngraveGroup.classList.add("hidden");
+    if (streamingControlGroup) streamingControlGroup.classList.remove("hidden");
+    if (engraveProgressContainer) engraveProgressContainer.classList.remove("hidden");
+
+    // Cập nhật trạng thái đơn sang ENGRAVING
+    updateOrderStatus(loadedWebOrder.id, "ENGRAVING");
+
+    try {
+        await laserCNC.startStreaming(loadedGcodeContent);
+    } catch (err) {
+        alert("Lỗi khi truyền lệnh khắc: " + err.message);
+    }
+}
+
+async function pauseWebEngraving() {
+    if (laserCNC) await laserCNC.pause();
+}
+
+async function resumeWebEngraving() {
+    if (laserCNC) await laserCNC.resume();
+}
+
+async function emergencyStopWebEngraving() {
+    if (confirm("🛑 DỪNG KHẨN CẤP: Tắt tia laser ngay lập tức và hủy toàn bộ quá trình khắc?")) {
+        if (laserCNC) await laserCNC.emergencyStop();
+        if (startEngraveGroup) startEngraveGroup.classList.remove("hidden");
+        if (streamingControlGroup) streamingControlGroup.classList.add("hidden");
+        updateStartEngraveButtonState();
+    }
+}
+
+function formatSeconds(secs) {
+    if (isNaN(secs) || secs < 0 || secs > 86400) return "00:00";
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+// Gắn toàn cục cho window
+window.connectUsbLaser = connectUsbLaser;
+window.disconnectUsbLaser = disconnectUsbLaser;
+window.setJogStep = setJogStep;
+window.jogLaser = jogLaser;
+window.setZeroLaser = setZeroLaser;
+window.goToZeroLaser = goToZeroLaser;
+window.unlockAlarmLaser = unlockAlarmLaser;
+window.toggleFocusLaser = toggleFocusLaser;
+window.loadOrderForWebEngrave = loadOrderForWebEngrave;
+window.frameLoadedOrder = frameLoadedOrder;
+window.startWebEngraving = startWebEngraving;
+window.pauseWebEngraving = pauseWebEngraving;
+window.resumeWebEngraving = resumeWebEngraving;
+window.emergencyStopWebEngraving = emergencyStopWebEngraving;
+
 
 
 
