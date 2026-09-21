@@ -188,9 +188,9 @@ def generate_grbl_gcode(dithered_img: Image.Image, width_mm: float, height_mm: f
         f.write(f"; Size: {width_mm:.1f}mm x {height_mm:.1f}mm\n")
         f.write(f"; Material: {material['name']} (Feed: {feedrate} mm/min, S: {power_val})\n")
         f.write("; ===============================================\n")
-        f.write("G21 ; He toa do Millimeter\n")
-        f.write("G90 ; Toa do tuyet doi (Absolute positioning)\n")
-        f.write("M4 S0 ; Kich hoat che do Dynamic Laser Power\n")
+        f.write("G21\n")
+        f.write("G90\n")
+        f.write("M4 S0\n")
         f.write(f"G0 X0.000 Y0.000 F{LASER_MACHINE['rapid_speed']}\n\n")
 
         current_x = 0.0
@@ -248,8 +248,8 @@ def generate_grbl_gcode(dithered_img: Image.Image, width_mm: float, height_mm: f
 
         # 3. GRBL Footer an toàn
         f.write("\n; ================= Hoan tat =================\n")
-        f.write("M5 S0 ; Tat han tia Laser\n")
-        f.write("G0 X0.000 Y0.000 ; Ve goc toa do an toan\n")
+        f.write("M5 S0\n")
+        f.write("G0 X0.000 Y0.000\n")
         f.write("; End of file\n")
 
     return output_path

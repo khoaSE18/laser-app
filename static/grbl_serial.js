@@ -28,6 +28,7 @@ class GRBLController {
         this.totalLines = 0;
         this.startTime = null;
         this.activeResolve = null; // Promise resolve khi nhận 'ok' hoặc error
+        this.activeTimeout = null;
 
         // Polling thăm dò trạng thái '?'
         this.pollTimer = null;
@@ -175,17 +176,31 @@ class GRBLController {
 
     /**
      * Phân tích phản hồi từ bo điều khiển GRBL / MKS DLC32
+     * Bóc tách thông minh các phản hồi bị gộp hoặc dính: <...>, ok, <...>ok, ok<...>, error, ALARM
      */
-    handleReceivedLine(line) {
-        // Phân tích dòng trạng thái <Idle|MPos:0.000,0.000,0.000|WPos:...>
-        if (line.startsWith("<") && line.endsWith(">")) {
-            this.parseStatusLine(line);
-            return;
+    handleReceivedLine(rawLine) {
+        let line = rawLine.trim();
+        if (!line) return;
+
+        // 1. Nếu dòng có chứa thẻ trạng thái <State|MPos:...>, tách và cập nhật ngay
+        const statusMatch = line.match(/<[^>]+>/);
+        if (statusMatch) {
+            this.parseStatusLine(statusMatch[0]);
+            // Loại bỏ phần trạng thái <...> để xử lý tiếp phần còn lại (ví dụ có kèm 'ok' hay 'error')
+            line = line.replace(statusMatch[0], "").trim();
         }
 
-        // Nhận phản hồi 'ok'
-        if (line === "ok") {
+        // Nếu dòng chỉ chứa trạng thái <...>, đến đây line sẽ rỗng -> kết thúc
+        if (!line) return;
+
+        // 2. Nhận phản hồi 'ok' (hỗ trợ bắt cả dính chữ, dấu cách hay in hoa)
+        const lower = line.toLowerCase();
+        if (lower === "ok" || lower.startsWith("ok") || lower.endsWith("ok") || lower.includes("ok")) {
             if (this.activeResolve) {
+                if (this.activeTimeout) {
+                    clearTimeout(this.activeTimeout);
+                    this.activeTimeout = null;
+                }
                 const res = this.activeResolve;
                 this.activeResolve = null;
                 res({ success: true });
@@ -193,10 +208,14 @@ class GRBLController {
             return;
         }
 
-        // Nhận cảnh báo lỗi 'error:XX'
-        if (line.startsWith("error:")) {
-            this.log("⚠️ GRBL cảnh báo: " + line, "warning");
+        // 3. Nhận cảnh báo lỗi 'error:XX'
+        if (lower.startsWith("error") || lower.includes("error:")) {
+            this.log("⚠️ GRBL phản hồi: " + line, "warning");
             if (this.activeResolve) {
+                if (this.activeTimeout) {
+                    clearTimeout(this.activeTimeout);
+                    this.activeTimeout = null;
+                }
                 const res = this.activeResolve;
                 this.activeResolve = null;
                 res({ success: false, error: line });
@@ -204,21 +223,30 @@ class GRBLController {
             return;
         }
 
-        // Báo động 'ALARM:XX'
-        if (line.startsWith("ALARM:")) {
+        // 4. Báo động 'ALARM:XX'
+        if (line.toUpperCase().includes("ALARM:")) {
             this.machineState = "Alarm";
             this.log("🚨 BÁO ĐỘNG MÁY: " + line + ". Nhấn nút 'Mở Khóa' ($X) để tiếp tục.", "error");
+            if (this.activeResolve) {
+                if (this.activeTimeout) {
+                    clearTimeout(this.activeTimeout);
+                    this.activeTimeout = null;
+                }
+                const res = this.activeResolve;
+                this.activeResolve = null;
+                res({ success: false, error: line });
+            }
             if (this.onStatusUpdate) this.onStatusUpdate(this.getStatusSummary());
             return;
         }
 
-        // Banner khởi động
-        if (line.toLowerCase().includes("grbl")) {
+        // 5. Banner khởi động
+        if (lower.includes("grbl")) {
             this.log("📟 " + line, "info");
             return;
         }
 
-        // Các thông tin khác
+        // 6. Các thông tin khác
         if (line.startsWith("[") && line.endsWith("]")) {
             this.log("ℹ️ " + line, "info");
         }
@@ -315,22 +343,25 @@ class GRBLController {
      * Gửi 1 dòng lệnh G-code và chờ 'ok' phản hồi (Handshake an toàn)
      */
     async sendGcodeLine(line) {
-        const clean = line.trim();
+        // Loại bỏ triệt để mọi comment trước khi gửi xuống bo điều khiển
+        const clean = line.replace(/;.*$/, "").replace(/\(.*?\)/g, "").trim();
         if (!clean) return { success: true };
 
         // Tạo promise chờ tín hiệu 'ok'
         const waitOk = new Promise((resolve) => {
             this.activeResolve = resolve;
-            // Timeout an toàn sau 5s nếu máy không phản hồi
-            setTimeout(() => {
+            // Timeout an toàn sau 8s nếu máy không phản hồi
+            this.activeTimeout = setTimeout(() => {
                 if (this.activeResolve === resolve) {
                     this.activeResolve = null;
+                    this.activeTimeout = null;
+                    console.warn(`[GRBL] Timeout chờ phản hồi cho lệnh: ${clean}`);
                     resolve({ success: false, timeout: true });
                 }
-            }, 5000);
+            }, 8000);
         });
 
-        await this.sendRaw(clean + "\n");
+        await this.sendRaw(clean + "\r\n");
         return await waitOk;
     }
 
@@ -448,6 +479,39 @@ class GRBLController {
        ========================================================================= */
 
     /**
+     * Cập nhật nhanh tọa độ nội suy từ G-code trong lúc đang streaming
+     */
+    updateCoordsFromGcode(line) {
+        if (!line) return;
+        const upper = line.toUpperCase();
+
+        const xMatch = upper.match(/X([-\d.]+)/);
+        if (xMatch) {
+            const xVal = parseFloat(xMatch[1]);
+            if (isFinite(xVal)) this.wpos.x = xVal;
+        }
+
+        const yMatch = upper.match(/Y([-\d.]+)/);
+        if (yMatch) {
+            const yVal = parseFloat(yMatch[1]);
+            if (isFinite(yVal)) this.wpos.y = yVal;
+        }
+
+        const sMatch = upper.match(/S([-\d.]+)/);
+        if (sMatch) {
+            const sVal = parseFloat(sMatch[1]);
+            if (isFinite(sVal)) this.spindle = sVal;
+        }
+
+        if (upper.includes("M3") || upper.includes("M4")) {
+            this.isLaserOn = true;
+        } else if (upper.includes("M5")) {
+            this.isLaserOn = false;
+            this.spindle = 0;
+        }
+    }
+
+    /**
      * Bắt đầu nạp và truyền luồng G-code xuống máy laser
      * @param {string} gcodeContent - Nội dung chuỗi toàn bộ file .nc
      */
@@ -455,11 +519,15 @@ class GRBLController {
         if (!this.isConnected) throw new Error("Chưa kết nối máy qua cổng USB");
         if (this.isStreaming) throw new Error("Máy đang trong quá trình khắc");
 
-        // Làm sạch và lọc các dòng lệnh G-code hợp lệ
+        // Làm sạch và lọc các dòng lệnh G-code hợp lệ (loại bỏ hoàn toàn comment)
         const rawLines = gcodeContent.split(/\r?\n/);
-        this.gcodeLines = rawLines
-            .map(l => l.trim())
-            .filter(l => l.length > 0 && !l.startsWith(";") && !l.startsWith("("));
+        this.gcodeLines = [];
+        for (let i = 0; i < rawLines.length; i++) {
+            const clean = rawLines[i].replace(/;.*$/, "").replace(/\(.*?\)/g, "").trim();
+            if (clean.length > 0) {
+                this.gcodeLines.push(clean);
+            }
+        }
 
         if (this.gcodeLines.length === 0) {
             throw new Error("File G-code rỗng hoặc không có câu lệnh hợp lệ!");
@@ -473,13 +541,10 @@ class GRBLController {
 
         this.log(`🚀 BẮT ĐẦU KHẮC: Tổng cộng ${this.totalLines.toLocaleString()} dòng lệnh G-code.`, "success");
 
-        // Giảm tần suất status polling xuống 1s khi đang streaming để tối đa băng thông truyền G-code
+        // TẠM DỪNG status polling '?' trong lúc streaming để giải phóng 100% băng thông cho luồng G-code
         this.stopStatusPolling();
-        this.pollTimer = setInterval(() => {
-            if (this.isConnected && !this.isPaused) {
-                this.sendRealtime("?");
-            }
-        }, 1000);
+
+        let lastUiUpdate = 0;
 
         try {
             while (this.currentLineIdx < this.totalLines && this.isStreaming) {
@@ -490,6 +555,8 @@ class GRBLController {
                 if (!this.isStreaming) break;
 
                 const line = this.gcodeLines[this.currentLineIdx];
+                this.updateCoordsFromGcode(line);
+
                 const res = await this.sendGcodeLine(line);
 
                 if (!res.success && res.error) {
@@ -498,9 +565,14 @@ class GRBLController {
 
                 this.currentLineIdx++;
 
-                // Báo cáo tiến trình mỗi 20 dòng hoặc khi hoàn thành
-                if (this.currentLineIdx % 20 === 0 || this.currentLineIdx === this.totalLines) {
+                // Cập nhật giao diện mượt mà (throttled mỗi 50ms hoặc khi hoàn tất)
+                const now = Date.now();
+                if (now - lastUiUpdate > 50 || this.currentLineIdx === this.totalLines) {
+                    lastUiUpdate = now;
                     this.notifyProgress();
+                    if (this.onStatusUpdate) {
+                        this.onStatusUpdate(this.getStatusSummary());
+                    }
                 }
             }
 
@@ -518,6 +590,9 @@ class GRBLController {
             this.isPaused = false;
             this.startStatusPolling(); // Khôi phục polling 250ms khi nhàn rỗi
             this.notifyProgress();
+            if (this.onStatusUpdate) {
+                this.onStatusUpdate(this.getStatusSummary());
+            }
         }
     }
 
@@ -528,7 +603,8 @@ class GRBLController {
         if (!this.isStreaming || this.isPaused) return;
         this.isPaused = true;
         await this.sendRealtime("!"); // Feed hold tức thời
-        await this.sendRealtime("M5\n"); // Tắt tạm thời laser
+        await this.sendRealtime("M5\r\n"); // Tắt tạm thời laser
+        this.startStatusPolling(); // Khôi phục polling theo dõi máy khi tạm dừng
         this.log("⏸️ Đã tạm dừng khắc.", "warning");
         this.notifyProgress();
     }
@@ -539,6 +615,7 @@ class GRBLController {
     async resume() {
         if (!this.isStreaming || !this.isPaused) return;
         this.isPaused = false;
+        this.stopStatusPolling(); // Tắt polling để luồng khắc chạy liên tục
         await this.sendRealtime("~"); // Cycle start tức thời
         this.log("▶️ Đang tiếp tục khắc...", "info");
         this.notifyProgress();

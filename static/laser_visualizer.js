@@ -166,8 +166,6 @@ class LaserVisualizer {
             // Lấy mẫu tối đa 1200 điểm dao để vẽ preview siêu mượt (< 2ms)
             const sampleStep = Math.max(1, Math.floor(total / 1200));
 
-            let currX = 0;
-            let currY = 0;
             let lastX = 0;
             let lastY = 0;
 
@@ -182,20 +180,21 @@ class LaserVisualizer {
                     const xMatch = line.match(/X([-\d.]+)/i);
                     const yMatch = line.match(/Y([-\d.]+)/i);
 
-                    if (xMatch) currX = parseFloat(xMatch[1]);
-                    if (yMatch) currY = parseFloat(yMatch[1]);
+                    const prevX = lastX;
+                    const prevY = lastY;
 
-                    // Chỉ lấy mẫu đại diện đều cho G0 và G1 (Tối đa 1200 điểm)
+                    if (xMatch) lastX = parseFloat(xMatch[1]);
+                    if (yMatch) lastY = parseFloat(yMatch[1]);
+
+                    // Lấy mẫu đại diện đều cho G0 và G1 (Tối đa 1200 điểm)
                     if (i % sampleStep === 0) {
                         this.toolpaths.push({
                             type: isG0 ? "G0" : "G1",
-                            x0: lastX,
-                            y0: lastY,
-                            x1: currX,
-                            y1: currY
+                            x0: prevX,
+                            y0: prevY,
+                            x1: lastX,
+                            y1: lastY
                         });
-                        lastX = currX;
-                        lastY = currY;
                     }
                 }
             }
@@ -215,7 +214,10 @@ class LaserVisualizer {
         if (!this.offscreenCtx || !this.displayWidth) return;
         try {
             const ctx = this.offscreenCtx;
-            ctx.clearRect(0, 0, this.displayWidth, this.displayHeight);
+            ctx.save();
+            ctx.resetTransform();
+            ctx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
+            ctx.restore();
 
             const origin = this.toCanvas(0, 0);
             const wPx = this.workpiece.width * this.scale;
@@ -329,8 +331,11 @@ class LaserVisualizer {
      * Xóa vệt khắc
      */
     clearTrace() {
-        if (this.burnCtx && this.displayWidth && this.displayHeight) {
-            this.burnCtx.clearRect(0, 0, this.displayWidth, this.displayHeight);
+        if (this.burnCtx && this.burnCanvas) {
+            this.burnCtx.save();
+            this.burnCtx.resetTransform();
+            this.burnCtx.clearRect(0, 0, this.burnCanvas.width, this.burnCanvas.height);
+            this.burnCtx.restore();
         }
         this.requestRedraw();
     }
@@ -365,19 +370,25 @@ class LaserVisualizer {
         ctx.fillStyle = "#090d16";
         ctx.fillRect(0, 0, this.displayWidth, this.displayHeight);
 
-        // 2. Lưới milimet
+        // 2. Phôi và đường dao tĩnh (Vẽ 1:1 pixel vật lý tránh lỗi DPR double scaling trên màn hình Retina / High-DPI)
+        if (this.hasRenderedStaticPaths && this.offscreenCanvas) {
+            ctx.save();
+            ctx.resetTransform();
+            ctx.drawImage(this.offscreenCanvas, 0, 0);
+            ctx.restore();
+        }
+
+        // 3. Lưới milimet (Hiển thị rõ nét trên bề mặt phôi)
         if (this.showGrid) {
             this.drawGrid(ctx);
         }
 
-        // 3. Phôi và đường dao tĩnh
-        if (this.hasRenderedStaticPaths && this.offscreenCanvas) {
-            ctx.drawImage(this.offscreenCanvas, 0, 0);
-        }
-
-        // 4. Vệt cháy laser
+        // 4. Vệt cháy laser (Vẽ 1:1 pixel vật lý trùng khớp tuyệt đối)
         if (this.burnCanvas) {
+            ctx.save();
+            ctx.resetTransform();
             ctx.drawImage(this.burnCanvas, 0, 0);
+            ctx.restore();
         }
 
         // 5. Gốc tọa độ (0, 0)
