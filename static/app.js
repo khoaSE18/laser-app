@@ -783,4 +783,450 @@ document.addEventListener("DOMContentLoaded", () => {
     updateCartBadge();
 });
 
+/* ==========================================================================
+   CHẾ ĐỘ QUẢN LÝ MÁY LASER & ĐIỀU KHIỂN LASERGRBL (DÀNH CHO CHỦ MÁY)
+   ========================================================================== */
+let isOperatorMode = false;
+let operatorPollTimer = null;
+
+const customerSection = document.getElementById("customerSection");
+const operatorSection = document.getElementById("operatorSection");
+const mainContainer = document.getElementById("mainContainer");
+const btnToggleOperator = document.getElementById("btnToggleOperator");
+const operatorBtnText = document.getElementById("operatorBtnText");
+
+const operatorPinModal = document.getElementById("operatorPinModal");
+const operatorPinForm = document.getElementById("operatorPinForm");
+const operatorPinInput = document.getElementById("operatorPinInput");
+const operatorPinError = document.getElementById("operatorPinError");
+const operatorOrdersTableBody = document.getElementById("operatorOrdersTableBody");
+
+const statTotal = document.getElementById("statTotal");
+const statPaid = document.getElementById("statPaid");
+const statPreparing = document.getElementById("statPreparing");
+const statEngraving = document.getElementById("statEngraving");
+const statCompleted = document.getElementById("statCompleted");
+
+const operatorNoticeModal = document.getElementById("operatorNoticeModal");
+const operatorNoticeHeading = document.getElementById("operatorNoticeHeading");
+const operatorNoticeMsg = document.getElementById("operatorNoticeMsg");
+const operatorNoticeActions = document.getElementById("operatorNoticeActions");
+
+function getOperatorPin() {
+    return localStorage.getItem("laser_admin_pin") || "";
+}
+
+function setOperatorPin(pin) {
+    localStorage.setItem("laser_admin_pin", pin);
+}
+
+function clearOperatorPin() {
+    localStorage.removeItem("laser_admin_pin");
+}
+
+function openOperatorPinModal() {
+    if (operatorPinModal) {
+        operatorPinModal.classList.remove("hidden");
+        if (operatorPinInput) {
+            operatorPinInput.value = "";
+            setTimeout(() => operatorPinInput.focus(), 120);
+        }
+        if (operatorPinError) operatorPinError.classList.add("hidden");
+    }
+}
+
+function closeOperatorPinModal() {
+    if (operatorPinModal) operatorPinModal.classList.add("hidden");
+}
+
+function toggleOperatorMode(targetState) {
+    const shouldBeOperator = (typeof targetState === "boolean") ? targetState : !isOperatorMode;
+
+    if (shouldBeOperator) {
+        const pin = getOperatorPin();
+        if (!pin) {
+            openOperatorPinModal();
+            return;
+        }
+        enterOperatorMode();
+    } else {
+        exitOperatorMode();
+    }
+}
+
+function enterOperatorMode() {
+    isOperatorMode = true;
+    if (customerSection) customerSection.classList.add("hidden");
+    if (operatorSection) operatorSection.classList.remove("hidden");
+    if (mainContainer) {
+        mainContainer.classList.remove("max-w-5xl");
+        mainContainer.classList.add("max-w-7xl");
+    }
+    if (operatorBtnText) operatorBtnText.textContent = "Đặt hàng";
+    if (btnToggleOperator) {
+        btnToggleOperator.classList.add("bg-amber-500/30", "border-amber-400");
+    }
+
+    fetchOperatorOrders();
+    if (operatorPollTimer) clearInterval(operatorPollTimer);
+    operatorPollTimer = setInterval(fetchOperatorOrders, 5000);
+}
+
+function exitOperatorMode() {
+    isOperatorMode = false;
+    if (operatorSection) operatorSection.classList.add("hidden");
+    if (customerSection) customerSection.classList.remove("hidden");
+    if (mainContainer) {
+        mainContainer.classList.remove("max-w-7xl");
+        mainContainer.classList.add("max-w-5xl");
+    }
+    if (operatorBtnText) operatorBtnText.textContent = "Quản lý máy";
+    if (btnToggleOperator) {
+        btnToggleOperator.classList.remove("bg-amber-500/30", "border-amber-400");
+    }
+
+    if (operatorPollTimer) {
+        clearInterval(operatorPollTimer);
+        operatorPollTimer = null;
+    }
+}
+
+function logoutOperator() {
+    clearOperatorPin();
+    exitOperatorMode();
+}
+
+if (operatorPinForm) {
+    operatorPinForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const pin = operatorPinInput ? operatorPinInput.value.trim() : "";
+        if (!pin) return;
+
+        if (operatorPinError) operatorPinError.classList.add("hidden");
+
+        const formData = new FormData();
+        formData.append("pin", pin);
+
+        try {
+            const res = await fetch("/api/admin/login", {
+                method: "POST",
+                body: formData
+            });
+
+            if (res.ok) {
+                setOperatorPin(pin);
+                closeOperatorPinModal();
+                enterOperatorMode();
+            } else {
+                if (operatorPinError) {
+                    operatorPinError.textContent = "Mã PIN không chính xác! Vui lòng thử lại.";
+                    operatorPinError.classList.remove("hidden");
+                }
+                if (operatorPinInput) operatorPinInput.focus();
+            }
+        } catch (err) {
+            if (operatorPinError) {
+                operatorPinError.textContent = "Lỗi kết nối máy chủ";
+                operatorPinError.classList.remove("hidden");
+            }
+        }
+    });
+}
+
+async function operatorFetch(url, options = {}) {
+    const pin = getOperatorPin();
+    if (!options.headers) {
+        options.headers = {};
+    }
+    options.headers["X-Admin-PIN"] = pin;
+
+    const res = await fetch(url, options);
+    if (res.status === 401) {
+        clearOperatorPin();
+        exitOperatorMode();
+        openOperatorPinModal();
+        throw new Error("Mã PIN không đúng hoặc đã hết hạn");
+    }
+    return res;
+}
+
+async function fetchOperatorOrders() {
+    if (!getOperatorPin()) return;
+
+    try {
+        const res = await operatorFetch("/api/admin/orders");
+        const data = await res.json();
+        if (data.success && data.orders) {
+            renderOperatorOrders(data.orders);
+            updateOperatorStats(data.orders);
+        }
+    } catch (err) {
+        console.error("Lỗi lấy danh sách đơn xưởng:", err);
+    }
+}
+
+function updateOperatorStats(orders) {
+    if (statTotal) statTotal.textContent = orders.length;
+    if (statPaid) statPaid.textContent = orders.filter(o => o.status === "PAID").length;
+    if (statPreparing) statPreparing.textContent = orders.filter(o => o.status === "PREPARING").length;
+    if (statEngraving) statEngraving.textContent = orders.filter(o => o.status === "ENGRAVING").length;
+    if (statCompleted) statCompleted.textContent = orders.filter(o => o.status === "COMPLETED").length;
+}
+
+function renderOperatorOrders(orders) {
+    if (!operatorOrdersTableBody) return;
+
+    if (!orders || orders.length === 0) {
+        operatorOrdersTableBody.innerHTML = `
+            <tr>
+                <td colspan="6" class="py-12 text-center text-slate-400">
+                    <i class="fa-regular fa-folder-open text-4xl mb-2 block text-slate-500"></i>
+                    Chưa có đơn hàng nào trong hệ thống
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    operatorOrdersTableBody.innerHTML = orders.map(order => {
+        const previewUrl = `/api/storage/previews/${order.id}_preview.png`;
+        const isPending = order.status === "PENDING_PAYMENT";
+        const isPaid = order.status === "PAID";
+        const isEngraving = order.status === "ENGRAVING";
+
+        return `
+            <tr class="hover:bg-slate-700/30 transition-colors ${isPaid ? 'bg-amber-500/5' : ''}">
+                <!-- Mã Đơn & Khách Hàng / Giao Nhận -->
+                <td class="py-3.5 px-4 min-w-[200px]">
+                    <span class="font-bold text-amber-400 font-mono text-sm block">${order.id}</span>
+                    <span class="text-[11px] text-slate-400">${order.created_at}</span>
+                    <span class="text-[11px] text-slate-200 font-bold block mt-0.5">${order.customer_name || 'Khách Web'}</span>
+
+                    <!-- Nút Chat Zalo -->
+                    ${order.customer_phone ? `
+                        <a href="https://zalo.me/${order.customer_phone}" target="_blank" class="inline-flex items-center gap-1 text-[11px] text-blue-400 font-bold hover:underline mt-1 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                            <i class="fa-solid fa-comment-dots text-[10px]"></i> Zalo: ${order.customer_phone}
+                        </a>
+                    ` : ''}
+
+                    <!-- Giao nhận hàng -->
+                    ${order.delivery_method === 'pickup' ? `
+                        <div class="mt-1">
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                <i class="fa-solid fa-store"></i> Nhận tại xưởng
+                            </span>
+                        </div>
+                    ` : `
+                        <div class="mt-1.5 bg-slate-950/70 p-2 rounded-lg border border-slate-800 space-y-1">
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="text-[10px] font-bold text-amber-400 flex items-center gap-1">
+                                    <i class="fa-solid fa-truck-fast"></i> Giao tận nơi:
+                                </span>
+                                <button onclick="copyAddress(this, '${(order.customer_name || '').replace(/'/g, "\\'")}', '${(order.customer_phone || '').replace(/'/g, "\\'")}', '${(order.shipping_address || '').replace(/'/g, "\\'")}')" class="text-[10px] text-amber-300 hover:text-white bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/40 px-1.5 py-0.5 rounded flex items-center gap-1 font-semibold transition-all shadow-sm" title="Sao chép tên, SĐT và địa chỉ để dán vào Viettel Post / GHTK">
+                                    <i class="fa-solid fa-copy"></i> Sao chép
+                                </button>
+                            </div>
+                            <p class="text-[11px] text-slate-300 font-medium leading-tight select-all">${order.shipping_address || '<span class=\"text-slate-500 italic\">(Chưa nhập địa chỉ)</span>'}</p>
+                        </div>
+                    `}
+
+                    <!-- Yêu cầu thiết kế -->
+                    ${order.customer_note && order.customer_note.includes('[CẦN THIẾT KẾ]') ? `
+                        <span class="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-purple-500/20 text-purple-300 border border-purple-500/30 block w-fit">
+                            🎨 CẦN TƯ VẤN THIẾT KẾ
+                        </span>
+                        <p class="text-[11px] text-amber-200/90 italic mt-0.5 bg-slate-950/60 p-1.5 rounded border border-slate-800">
+                            ${order.customer_note.replace('[CẦN THIẾT KẾ]', '').trim() || 'Khách nhờ chỉnh sửa/tách nền'}
+                        </p>
+                    ` : (order.customer_note ? `<p class="text-[10px] text-slate-400 italic mt-0.5">${order.customer_note}</p>` : '')}
+                </td>
+
+                <!-- Ảnh Thumbnail Vết Cháy -->
+                <td class="py-3.5 px-4">
+                    <div class="flex items-center gap-2">
+                        <img src="${previewUrl}" class="w-14 h-14 object-contain bg-slate-950 rounded-lg border border-slate-700 shadow-sm" title="Vết cháy laser">
+                    </div>
+                </td>
+
+                <!-- Kích thước & Thời gian -->
+                <td class="py-3.5 px-4">
+                    <span class="font-semibold text-slate-100 block">${order.width_mm} x ${order.height_mm} mm</span>
+                    <span class="text-[11px] text-slate-400">Diện tích: ${((order.width_mm * order.height_mm)/100).toFixed(1)} cm²</span>
+                    <span class="text-[11px] text-amber-400 font-medium block mt-0.5">
+                        <i class="fa-regular fa-clock"></i> ~${order.estimated_minutes} phút khắc
+                    </span>
+                </td>
+
+                <!-- Vật liệu & Giá -->
+                <td class="py-3.5 px-4">
+                    <span class="font-bold text-slate-200 block">${order.material_name}</span>
+                    <span class="text-sm font-black text-emerald-400">${formatVND(order.total_price)}</span>
+                </td>
+
+                <!-- Trạng thái -->
+                <td class="py-3.5 px-4 min-w-[170px]">
+                    <div class="space-y-1.5">
+                        <select onchange="updateOrderStatus('${order.id}', this.value)" class="w-full text-[11px] font-bold py-1.5 px-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-amber-500 cursor-pointer">
+                            <option value="PENDING_PAYMENT" ${order.status === 'PENDING_PAYMENT' ? 'selected' : ''}>⏳ 1. Chờ Chuyển Khoản</option>
+                            <option value="PAID" ${order.status === 'PAID' ? 'selected' : ''}>✅ 2. Đã Nhận Tiền (VIB)</option>
+                            <option value="PREPARING" ${order.status === 'PREPARING' ? 'selected' : ''}>🎨 3. Chuẩn Bị Phôi & File</option>
+                            <option value="ENGRAVING" ${order.status === 'ENGRAVING' ? 'selected' : ''}>🔥 4. Đang Khắc Laser</option>
+                            <option value="COMPLETED" ${order.status === 'COMPLETED' ? 'selected' : ''}>🎉 5. Hoàn Thành / Giao</option>
+                            <option value="CANCELLED" ${order.status === 'CANCELLED' ? 'selected' : ''}>❌ Hủy Đơn Hàng</option>
+                        </select>
+                        
+                        <!-- Nút duyệt tiền chỉ hiện khi đang chờ thanh toán -->
+                        ${isPending ? `
+                            <button onclick="confirmOperatorPayment('${order.id}')" class="w-full py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 shadow-md shadow-emerald-600/20 transition-all">
+                                <i class="fa-solid fa-check"></i> Duyệt Đã Nhận Tiền
+                            </button>
+                        ` : ''}
+
+                        <!-- Nút báo xong nhanh khi đang khắc -->
+                        ${isEngraving ? `
+                            <button onclick="updateOrderStatus('${order.id}', 'COMPLETED')" class="w-full py-1 px-2 bg-emerald-600/90 hover:bg-emerald-600 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all">
+                                <i class="fa-solid fa-circle-check"></i> Báo Đã Khắc Xong
+                            </button>
+                        ` : ''}
+                    </div>
+                </td>
+
+                <!-- Thao tác LaserGRBL -->
+                <td class="py-3.5 px-4 text-center">
+                    <div class="flex items-center justify-center gap-2">
+                        ${isPending ? `
+                            <!-- Chưa thanh toán: Khóa nút khắc để bảo vệ máy -->
+                            <button disabled class="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-500 text-xs font-semibold cursor-not-allowed border border-slate-700" title="Khách chưa thanh toán, không thể khắc">
+                                <i class="fa-solid fa-lock text-[10px] mr-1"></i> Chưa duyệt tiền
+                            </button>
+                        ` : `
+                            <!-- Đã thanh toán: Mở khóa nút LaserGRBL -->
+                            <button onclick="openLaserGRBL('${order.id}')" class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-md shadow-orange-500/20 hover:scale-105 active:scale-95 transition-all">
+                                <i class="fa-solid fa-play text-[10px]"></i> Mở LaserGRBL
+                            </button>
+                        `}
+
+                        <!-- Nút Tải File G-code .NC -->
+                        <a href="/api/admin/orders/${order.id}/download-gcode" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 transition-all" title="Tải file .NC để chép vào thẻ nhớ MicroSD">
+                            <i class="fa-solid fa-download"></i> .NC
+                        </a>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join("");
+}
+
+async function confirmOperatorPayment(orderId) {
+    if (!confirm(`Bạn có chắc chắn đã nhận được tiền từ tài khoản VIB cho đơn hàng [${orderId}]?`)) {
+        return;
+    }
+
+    try {
+        const res = await operatorFetch(`/api/admin/orders/${orderId}/confirm-payment`, {
+            method: "POST"
+        });
+        const data = await res.json();
+        if (data.success) {
+            fetchOperatorOrders();
+        } else {
+            alert(data.detail || "Lỗi khi duyệt thanh toán");
+        }
+    } catch (err) {
+        console.error("Lỗi duyệt tiền:", err);
+    }
+}
+
+async function updateOrderStatus(orderId, newStatus) {
+    const formData = new FormData();
+    formData.append("status", newStatus);
+
+    try {
+        await operatorFetch(`/api/admin/orders/${orderId}/status`, {
+            method: "POST",
+            body: formData
+        });
+        fetchOperatorOrders();
+    } catch (err) {
+        console.error("Lỗi cập nhật trạng thái:", err);
+    }
+}
+
+async function openLaserGRBL(orderId) {
+    try {
+        const res = await operatorFetch(`/api/admin/orders/${orderId}/open-lasergrbl`, {
+            method: "POST"
+        });
+        const data = await res.json();
+
+        // 1. Kích hoạt mở LaserGRBL qua giao thức lasergrbl://
+        if (data.lasergrbl_uri) {
+            window.location.href = data.lasergrbl_uri;
+        }
+
+        // 2. Hiển thị thông báo hướng dẫn
+        if (operatorNoticeModal) {
+            if (operatorNoticeHeading) {
+                operatorNoticeHeading.textContent = data.local_launched 
+                    ? "Đã Mở LaserGRBL Trực Tiếp" 
+                    : "Đang Khởi Chạy LaserGRBL...";
+            }
+            if (operatorNoticeMsg) {
+                let msg = data.message || "";
+                if (data.cloud_mode) {
+                    msg += "\n\n🚀 Trình duyệt đang kích hoạt mở phần mềm LaserGRBL trên máy tính của bạn.\n"
+                        + "👉 Nếu bạn chưa chạy cài đặt 1-chạm, hãy nhấp đúp file 'cai_dat_ket_noi_lasergrbl.bat' trong thư mục D:\\Laser!";
+                }
+                operatorNoticeMsg.textContent = msg;
+            }
+            if (operatorNoticeActions) {
+                operatorNoticeActions.innerHTML = `
+                    <a href="/api/admin/orders/${orderId}/download-gcode" download="${orderId}.nc" class="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1">
+                        <i class="fa-solid fa-download"></i> Tải File .NC Thủ Công
+                    </a>
+                    <button onclick="document.getElementById('operatorNoticeModal').classList.add('hidden')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold">
+                        Đóng
+                    </button>
+                `;
+            }
+            operatorNoticeModal.classList.remove("hidden");
+        }
+
+        if (data.success) {
+            updateOrderStatus(orderId, "ENGRAVING");
+        }
+    } catch (err) {
+        alert("Lỗi khi kết nối với LaserGRBL: " + err.message);
+    }
+}
+
+function copyAddress(btn, name, phone, address) {
+    const textToCopy = `${name} - ${phone} - ${address}`.trim();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> Đã chép!`;
+            btn.classList.add("bg-emerald-500/30", "text-emerald-300");
+            setTimeout(() => {
+                btn.innerHTML = originalHTML;
+                btn.classList.remove("bg-emerald-500/30", "text-emerald-300");
+            }, 2000);
+        }).catch(() => {
+            prompt("Nhấn Ctrl+C để sao chép địa chỉ:", textToCopy);
+        });
+    } else {
+        prompt("Nhấn Ctrl+C để sao chép địa chỉ:", textToCopy);
+    }
+}
+
+// Gắn các hàm ra window để truy cập từ HTML onclick/onchange
+window.toggleOperatorMode = toggleOperatorMode;
+window.closeOperatorPinModal = closeOperatorPinModal;
+window.logoutOperator = logoutOperator;
+window.fetchOperatorOrders = fetchOperatorOrders;
+window.confirmOperatorPayment = confirmOperatorPayment;
+window.updateOrderStatus = updateOrderStatus;
+window.openLaserGRBL = openLaserGRBL;
+window.copyAddress = copyAddress;
+
 

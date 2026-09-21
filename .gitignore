@@ -9,3 +9,5 @@ storage/previews/*
 !storage/previews/.gitkeep
 .env
 .DS_Store
+*.exe
+LaserGRBL/

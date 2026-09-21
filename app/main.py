@@ -504,32 +504,31 @@ def open_in_lasergrbl(order_id: str, authenticated: bool = Depends(verify_admin_
 
     try:
         sync_status_to_cloud(order_id, "ENGRAVING")
+        download_endpoint = f"/api/admin/orders/{order_id}/download-gcode"
+        cloud_base = RENDER_CLOUD_URL.rstrip('/')
+        full_download_url = f"{cloud_base}{download_endpoint}"
+        protocol_uri = f"lasergrbl://open?order={order_id}&url={full_download_url}"
+
         if lasergrbl_bin and os.path.exists(lasergrbl_bin):
             subprocess.Popen([lasergrbl_bin, gcode_path])
             return {
                 "success": True,
-                "message": f"Đã khởi chạy LaserGRBL và mở file: {os.path.basename(gcode_path)}",
+                "local_launched": True,
+                "lasergrbl_uri": protocol_uri,
+                "download_url": download_endpoint,
+                "filename": f"{order_id}.nc",
+                "message": f"Đã khởi chạy LaserGRBL trực tiếp và mở file: {os.path.basename(gcode_path)}",
                 "lasergrbl_path": lasergrbl_bin
             }
         else:
-            # Nếu chạy trên máy tính Windows nội bộ
-            if hasattr(os, "startfile"):
-                try:
-                    os.startfile(gcode_path)
-                    return {
-                        "success": True,
-                        "message": f"Đã mở file qua ứng dụng mặc định của hệ thống: {os.path.basename(gcode_path)}"
-                    }
-                except Exception:
-                    pass
-
-            # Nếu chạy trên Cloud (Linux)
+            # Nếu chạy trên Cloud (Render Linux) hoặc máy chưa phát hiện LaserGRBL
             return {
                 "success": True,
                 "cloud_mode": True,
-                "download_url": f"/api/admin/orders/{order_id}/download-gcode",
+                "lasergrbl_uri": protocol_uri,
+                "download_url": download_endpoint,
                 "filename": f"{order_id}.nc",
-                "message": f"Đang tự động tải file {order_id}.nc về máy tính của bạn.\nBạn chỉ cần nhấp mở file là LaserGRBL sẽ tự động nạp sẵn để khắc!"
+                "message": f"Đang gọi LaserGRBL trên máy tính của bạn..."
             }
 
     except Exception as e:
