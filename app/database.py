@@ -147,3 +147,22 @@ def find_orders_by_query(query: str):
     conn.close()
     return [dict(r) for r in rows]
 
+def delete_order(order_id: str) -> bool:
+    """Xóa 1 đơn hàng khỏi database"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+def clear_all_orders():
+    """Xóa toàn bộ đơn hàng trong database (đưa về 0 đơn)"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM orders")
+    conn.commit()
+    conn.close()
+
+

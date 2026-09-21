@@ -177,6 +177,26 @@ function updateCartBadge() {
     }
 }
 
+function removeMyOrderId(orderId) {
+    if (!orderId) return;
+    try {
+        const ids = getMyOrderIds().filter(x => x !== orderId);
+        localStorage.setItem("laser_my_orders", JSON.stringify(ids));
+        updateCartBadge();
+        loadMyOrders();
+    } catch (e) {
+        console.warn("Không thể xóa mã đơn:", e);
+    }
+}
+
+function clearAllMyOrders() {
+    if (!confirm("Bạn có chắc muốn xóa tất cả lịch sử đơn hàng trên trình duyệt này?")) return;
+    localStorage.removeItem("laser_my_orders");
+    updateCartBadge();
+    renderEmptyOrders();
+}
+
+
 
 
 // 1. Tải cấu hình hệ thống từ API
@@ -599,8 +619,13 @@ async function loadMyOrders() {
         });
         const data = await res.json();
         if (data.success && data.orders && data.orders.length > 0) {
+            const validIds = data.orders.map(o => o.id);
+            localStorage.setItem("laser_my_orders", JSON.stringify(validIds));
+            updateCartBadge();
             renderOrderCards(data.orders);
         } else {
+            localStorage.removeItem("laser_my_orders");
+            updateCartBadge();
             renderEmptyOrders();
         }
     } catch (err) {
@@ -762,6 +787,9 @@ function renderOrderCards(orders) {
                         </button>
                     ` : ''}
 
+                    <button onclick="removeMyOrderId('${order.id}')" class="px-3 py-2 bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-slate-700 hover:border-rose-500/30 rounded-xl text-xs font-semibold flex items-center gap-1 transition-all" title="Xóa đơn này khỏi lịch sử trên máy tôi">
+                        <i class="fa-regular fa-trash-can"></i> Xóa
+                    </button>
                     <a href="https://zalo.me/0352445940" target="_blank" rel="noopener noreferrer" class="px-3.5 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all">
                         <i class="fa-solid fa-comment-dots text-blue-400"></i> Chat Zalo hỏi xưởng
                     </a>
@@ -1110,11 +1138,55 @@ function renderOperatorOrders(orders) {
                         <a href="/api/admin/orders/${order.id}/download-gcode" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 transition-all" title="Tải file .NC để chép vào thẻ nhớ MicroSD">
                             <i class="fa-solid fa-download"></i> .NC
                         </a>
+
+                        <!-- Nút Xóa Đơn Hàng -->
+                        <button onclick="deleteOperatorOrder('${order.id}')" class="px-2 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 text-xs font-semibold flex items-center transition-all" title="Xóa vĩnh viễn đơn này khỏi hệ thống">
+                            <i class="fa-regular fa-trash-can"></i>
+                        </button>
                     </div>
                 </td>
             </tr>
         `;
     }).join("");
+}
+
+async function deleteOperatorOrder(orderId) {
+    if (!confirm(`Bạn có chắc chắn muốn xóa vĩnh viễn đơn hàng [${orderId}] khỏi hệ thống?`)) {
+        return;
+    }
+    try {
+        const res = await operatorFetch(`/api/admin/orders/${orderId}`, {
+            method: "DELETE"
+        });
+        const data = await res.json();
+        if (data.success) {
+            fetchOperatorOrders();
+        } else {
+            alert(data.detail || "Lỗi khi xóa đơn hàng");
+        }
+    } catch (err) {
+        console.error("Lỗi xóa đơn:", err);
+    }
+}
+
+async function clearAllOperatorOrders() {
+    if (!confirm("⚠️ CẢNH BÁO: Bạn có chắc chắn muốn xóa TOÀN BỘ đơn hàng test trong hệ thống và đưa về 0 đơn ban đầu?")) {
+        return;
+    }
+    try {
+        const res = await operatorFetch("/api/admin/orders/clear-all", {
+            method: "POST"
+        });
+        const data = await res.json();
+        if (data.success) {
+            fetchOperatorOrders();
+            alert("Đã xóa sạch toàn bộ đơn hàng!");
+        } else {
+            alert(data.detail || "Lỗi khi xóa đơn");
+        }
+    } catch (err) {
+        console.error("Lỗi xóa toàn bộ đơn:", err);
+    }
 }
 
 async function confirmOperatorPayment(orderId) {
@@ -1228,5 +1300,10 @@ window.confirmOperatorPayment = confirmOperatorPayment;
 window.updateOrderStatus = updateOrderStatus;
 window.openLaserGRBL = openLaserGRBL;
 window.copyAddress = copyAddress;
+window.removeMyOrderId = removeMyOrderId;
+window.clearAllMyOrders = clearAllMyOrders;
+window.deleteOperatorOrder = deleteOperatorOrder;
+window.clearAllOperatorOrders = clearAllOperatorOrders;
+
 
 

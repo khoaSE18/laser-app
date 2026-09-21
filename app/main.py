@@ -25,7 +25,8 @@ from app.config import (
 )
 from app.database import (
     init_db, create_order, get_order, update_order_status,
-    list_orders, find_orders_by_query, upsert_order
+    list_orders, find_orders_by_query, upsert_order,
+    delete_order, clear_all_orders
 )
 from app.laser_engine import (
     process_and_dither_image, generate_preview_image,
@@ -545,6 +546,22 @@ def download_gcode(order_id: str):
         media_type="application/x-gcode",
         filename=f"{order_id}.nc"
     )
+
+@app.delete("/api/admin/orders/{order_id}")
+def admin_delete_order(order_id: str, authenticated: bool = Depends(verify_admin_pin)):
+    """Xóa 1 đơn hàng khỏi hệ thống"""
+    order = get_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+    success = delete_order(order_id)
+    return {"success": success, "message": f"Đã xóa đơn hàng {order_id}"}
+
+@app.post("/api/admin/orders/clear-all")
+def admin_clear_all_orders(authenticated: bool = Depends(verify_admin_pin)):
+    """Xóa sạch toàn bộ đơn hàng test (đưa về 0 đơn)"""
+    clear_all_orders()
+    return {"success": True, "message": "Đã xóa sạch toàn bộ đơn hàng test"}
+
 
 @app.get("/api/storage/{subfolder}/{filename}")
 def serve_storage_file(subfolder: str, filename: str):

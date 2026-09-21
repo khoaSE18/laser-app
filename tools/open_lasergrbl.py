@@ -27,12 +27,12 @@ def show_alert(title: str, message: str, is_error: bool = False):
 
 def find_lasergrbl_exe() -> str | None:
     candidates = [
-        r"D:\Laser\LaserGRBL.exe",
         r"D:\Laser\LaserGRBL\LaserGRBL\bin\Release\LaserGRBL.exe",
+        r"D:\Laser\LaserGRBL.exe",
         r"D:\Laser\LaserGRBL\LaserGRBL\bin\Debug\LaserGRBL.exe",
-        r"D:\LaserGRBL\LaserGRBL.exe",
         r"D:\LaserGRBL\LaserGRBL\bin\Release\LaserGRBL.exe",
         r"D:\LaserGRBL\LaserGRBL\bin\Debug\LaserGRBL.exe",
+        r"D:\LaserGRBL\LaserGRBL.exe",
         r"C:\Program Files (x86)\LaserGRBL\LaserGRBL.exe",
         r"C:\Program Files\LaserGRBL\LaserGRBL.exe",
         os.path.expandvars(r"%LOCALAPPDATA%\Programs\LaserGRBL\LaserGRBL.exe"),

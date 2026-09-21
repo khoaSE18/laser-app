@@ -100,8 +100,8 @@ MATERIALS = {
 
 # Đường dẫn LaserGRBL trên máy tính xưởng (Tìm tự động hoặc cấu hình thủ công)
 LASERGRBL_CANDIDATE_PATHS = [
-    r"D:\Laser\LaserGRBL.exe",
     r"D:\Laser\LaserGRBL\LaserGRBL\bin\Release\LaserGRBL.exe",
+    r"D:\Laser\LaserGRBL.exe",
     r"D:\Laser\LaserGRBL\LaserGRBL\bin\Debug\LaserGRBL.exe",
     r"D:\LaserGRBL\LaserGRBL\bin\Release\LaserGRBL.exe",
     r"D:\LaserGRBL\LaserGRBL\bin\Debug\LaserGRBL.exe",
