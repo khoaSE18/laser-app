@@ -1707,6 +1707,10 @@ async function startWebEngraving() {
         await laserCNC.startStreaming(loadedGcodeContent);
     } catch (err) {
         alert("Lỗi khi truyền lệnh khắc: " + err.message);
+    } finally {
+        if (startEngraveGroup) startEngraveGroup.classList.remove("hidden");
+        if (streamingControlGroup) streamingControlGroup.classList.add("hidden");
+        updateStartEngraveButtonState();
     }
 }
 

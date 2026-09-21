@@ -7,13 +7,14 @@ class GRBLController {
         this.port = null;
         this.reader = null;
         this.writer = null;
-        this.readableStreamClosed = null;
-        this.writableStreamClosed = null;
+        this.encoder = new TextEncoder();
+        this.writePromise = Promise.resolve();
 
         this.isConnected = false;
         this.isStreaming = false;
         this.isPaused = false;
         this.isFocusLaserOn = false;
+        this.isLaserOn = false;
 
         // Trạng thái máy đọc từ GRBL
         this.machineState = "Disconnected"; // Idle, Run, Hold, Alarm, Door, Check, Home
@@ -68,19 +69,19 @@ class GRBLController {
                 flowControl: "none"
             });
 
-            this.encoder = new TextEncoder();
             this.writer = this.port.writable.getWriter();
+            this.writePromise = Promise.resolve();
             this.isConnected = true;
             this.log("Đã kết nối cổng USB với tốc độ " + baudRate + " baud.", "success");
 
-            // Thiết lập luồng đọc
+            // Thiết lập luồng đọc trực tiếp từ getReader (Tránh stream lock của pipeTo)
             this.startReading();
 
             // Khởi chạy vòng lặp thăm dò trạng thái '?'
             this.startStatusPolling();
 
-            // Gửi lệnh đánh thức GRBL
-            await this.sendRaw("\r\n\r\n");
+            // Gửi lệnh đánh thức GRBL (chuẩn \n\n)
+            await this.sendRaw("\n\n");
             setTimeout(() => this.sendRealtime("?"), 500);
 
             if (this.onConnectionChange) {
@@ -104,7 +105,7 @@ class GRBLController {
     }
 
     /**
-     * Ngắt kết nối cổng USB
+     * Ngắt kết nối cổng USB an toàn, giải phóng khóa stream 100%
      */
     async disconnect() {
         this.stopStatusPolling();
@@ -113,10 +114,22 @@ class GRBLController {
         this.isConnected = false;
         this.machineState = "Disconnected";
 
+        if (this.activeTimeout) {
+            clearTimeout(this.activeTimeout);
+            this.activeTimeout = null;
+        }
+        if (this.activeResolve) {
+            const res = this.activeResolve;
+            this.activeResolve = null;
+            res({ success: false, aborted: true });
+        }
+
         try {
             if (this.reader) {
                 await this.reader.cancel().catch(() => {});
-                this.reader.releaseLock();
+                try {
+                    this.reader.releaseLock();
+                } catch (e) {}
                 this.reader = null;
             }
             if (this.writer) {
@@ -139,37 +152,40 @@ class GRBLController {
     }
 
     /**
-     * Đọc dữ liệu từ Serial liên tục
+     * Đọc dữ liệu từ Serial liên tục bằng getReader và TextDecoder
+     * Không sử dụng pipeTo để tránh stream lock
      */
     async startReading() {
         let buffer = "";
-        while (this.port && this.port.readable && this.isConnected) {
-            try {
-                const textDecoder = new TextDecoderStream();
-                this.readableStreamClosed = this.port.readable.pipeTo(textDecoder.writable);
-                this.reader = textDecoder.readable.getReader();
-
-                while (true) {
-                    const { value, done } = await this.reader.read();
-                    if (done) break;
-                    if (value) {
-                        buffer += value;
-                        const lines = buffer.split(/\r\n|\n|\r/);
-                        buffer = lines.pop(); // Giữ lại phần chưa đủ 1 dòng
-
-                        for (const line of lines) {
-                            const trimmed = line.trim();
-                            if (trimmed) {
-                                this.handleReceivedLine(trimmed);
-                            }
+        const decoder = new TextDecoder();
+        try {
+            this.reader = this.port.readable.getReader();
+            while (this.isConnected && this.reader) {
+                const { value, done } = await this.reader.read();
+                if (done) break;
+                if (value) {
+                    buffer += decoder.decode(value, { stream: true });
+                    let newlineIdx;
+                    while ((newlineIdx = buffer.indexOf("\n")) >= 0) {
+                        let line = buffer.slice(0, newlineIdx);
+                        buffer = buffer.slice(newlineIdx + 1);
+                        line = line.replace(/\r$/, "").trim();
+                        if (line) {
+                            this.handleReceivedLine(line);
                         }
                     }
                 }
-            } catch (err) {
-                if (this.isConnected) {
-                    this.log("Lỗi đọc dữ liệu: " + err.message, "error");
-                }
-                break;
+            }
+        } catch (err) {
+            if (this.isConnected) {
+                console.warn("[GRBL Serial] Lỗi đọc dữ liệu:", err);
+            }
+        } finally {
+            if (this.reader) {
+                try {
+                    this.reader.releaseLock();
+                } catch (e) {}
+                this.reader = null;
             }
         }
     }
@@ -193,9 +209,9 @@ class GRBLController {
         // Nếu dòng chỉ chứa trạng thái <...>, đến đây line sẽ rỗng -> kết thúc
         if (!line) return;
 
-        // 2. Nhận phản hồi 'ok' (hỗ trợ bắt cả dính chữ, dấu cách hay in hoa)
+        // 2. Nhận phản hồi 'ok'
         const lower = line.toLowerCase();
-        if (lower === "ok" || lower.startsWith("ok") || lower.endsWith("ok") || lower.includes("ok")) {
+        if (lower === "ok" || lower.startsWith("ok ") || lower.endsWith(" ok") || lower.split(/\s+/).includes("ok")) {
             if (this.activeResolve) {
                 if (this.activeTimeout) {
                     clearTimeout(this.activeTimeout);
@@ -224,9 +240,9 @@ class GRBLController {
         }
 
         // 4. Báo động 'ALARM:XX'
-        if (line.toUpperCase().includes("ALARM:")) {
+        if (line.toUpperCase().includes("ALARM")) {
             this.machineState = "Alarm";
-            this.log("🚨 BÁO ĐỘNG MÁY: " + line + ". Nhấn nút 'Mở Khóa' ($X) để tiếp tục.", "error");
+            this.log("🚨 BÁO ĐỘNG MÁY: " + line + ". Nhấn nút 'Mở Khóa' ($X) hoặc máy sẽ tự mở khóa khi bắt đầu.", "error");
             if (this.activeResolve) {
                 if (this.activeTimeout) {
                     clearTimeout(this.activeTimeout);
@@ -299,15 +315,27 @@ class GRBLController {
     }
 
     /**
-     * Vòng lặp thăm dò trạng thái bằng ký tự '?' mỗi 250ms
+     * Vòng lặp thăm dò trạng thái bằng ký tự '?' mỗi 250ms khi nhàn rỗi
      */
     startStatusPolling() {
         this.stopStatusPolling();
         this.pollTimer = setInterval(() => {
-            if (this.isConnected) {
+            if (this.isConnected && !this.isStreaming) {
                 this.sendRealtime("?");
             }
         }, 250);
+    }
+
+    /**
+     * Vòng lặp thăm dò trạng thái nhẹ nhàng mỗi 1500ms khi đang khắc (không nghẽn băng thông)
+     */
+    startStreamingStatusPolling() {
+        this.stopStatusPolling();
+        this.pollTimer = setInterval(() => {
+            if (this.isConnected && this.isStreaming && !this.isPaused) {
+                this.sendRealtime("?");
+            }
+        }, 1500);
     }
 
     stopStatusPolling() {
@@ -318,29 +346,48 @@ class GRBLController {
     }
 
     /**
+     * Hàng đợi ghi tuần tự (FIFO Queue)
+     * Tránh triệt để lỗi "Cannot write to stream while a write is pending"
+     */
+    async queueSerialWrite(data) {
+        if (!this.isConnected || !this.writer) return;
+        const bytes = typeof data === "string" ? this.encoder.encode(data) : data;
+
+        const nextPromise = (this.writePromise || Promise.resolve())
+            .then(async () => {
+                if (this.writer && this.isConnected) {
+                    await this.writer.write(bytes);
+                }
+            })
+            .catch((err) => {
+                console.warn("[GRBL Write Error]", err);
+            });
+
+        this.writePromise = nextPromise;
+        return nextPromise;
+    }
+
+    /**
      * Gửi ký tự điều khiển tức thì (Real-time command: ?, !, ~, \x18)
      */
     async sendRealtime(char) {
         if (!this.isConnected || !this.writer) return;
-        try {
-            await this.writer.write(this.encoder.encode(char));
-        } catch (err) {
-            // Lỗi nhẹ có thể bỏ qua khi đang đọc ghi đồng thời
-        }
+        await this.queueSerialWrite(char);
     }
 
     /**
-     * Gửi chuỗi thô kèm kết thúc dòng \n
+     * Gửi chuỗi qua hàng đợi nối tiếp an toàn
      */
     async sendRaw(text) {
         if (!this.isConnected || !this.writer) {
             throw new Error("Chưa kết nối cổng USB.");
         }
-        await this.writer.write(this.encoder.encode(text));
+        await this.queueSerialWrite(text);
     }
 
     /**
      * Gửi 1 dòng lệnh G-code và chờ 'ok' phản hồi (Handshake an toàn)
+     * BẮT BUỘC chỉ kết thúc bằng \n (CHUẨN GRBL). TUYỆT ĐỐI KHÔNG DÙNG \r\n
      */
     async sendGcodeLine(line) {
         // Loại bỏ triệt để mọi comment trước khi gửi xuống bo điều khiển
@@ -350,7 +397,7 @@ class GRBLController {
         // Tạo promise chờ tín hiệu 'ok'
         const waitOk = new Promise((resolve) => {
             this.activeResolve = resolve;
-            // Timeout an toàn sau 8s nếu máy không phản hồi
+            // Timeout an toàn sau 10s nếu máy không phản hồi
             this.activeTimeout = setTimeout(() => {
                 if (this.activeResolve === resolve) {
                     this.activeResolve = null;
@@ -358,10 +405,11 @@ class GRBLController {
                     console.warn(`[GRBL] Timeout chờ phản hồi cho lệnh: ${clean}`);
                     resolve({ success: false, timeout: true });
                 }
-            }, 8000);
+            }, 10000);
         });
 
-        await this.sendRaw(clean + "\r\n");
+        // Chỉ kết thúc bằng \n theo chuẩn GRBL
+        await this.sendRaw(clean + "\n");
         return await waitOk;
     }
 
@@ -519,6 +567,13 @@ class GRBLController {
         if (!this.isConnected) throw new Error("Chưa kết nối máy qua cổng USB");
         if (this.isStreaming) throw new Error("Máy đang trong quá trình khắc");
 
+        // Nếu máy đang ở trạng thái Alarm hoặc bị khóa, tự động gửi $X để mở khóa
+        if (this.machineState === "Alarm" || (typeof this.machineState === "string" && this.machineState.toLowerCase().includes("alarm"))) {
+            this.log("⚠️ Máy đang ở trạng thái Báo Động (Alarm). Đang tự động gửi lệnh mở khóa ($X)...", "warning");
+            await this.unlockAlarm();
+            await new Promise(r => setTimeout(r, 400));
+        }
+
         // Làm sạch và lọc các dòng lệnh G-code hợp lệ (loại bỏ hoàn toàn comment)
         const rawLines = gcodeContent.split(/\r?\n/);
         this.gcodeLines = [];
@@ -541,8 +596,8 @@ class GRBLController {
 
         this.log(`🚀 BẮT ĐẦU KHẮC: Tổng cộng ${this.totalLines.toLocaleString()} dòng lệnh G-code.`, "success");
 
-        // TẠM DỪNG status polling '?' trong lúc streaming để giải phóng 100% băng thông cho luồng G-code
-        this.stopStatusPolling();
+        // Polling nhẹ nhàng 1500ms để theo dõi máy thực tế
+        this.startStreamingStatusPolling();
 
         let lastUiUpdate = 0;
 
@@ -557,10 +612,18 @@ class GRBLController {
                 const line = this.gcodeLines[this.currentLineIdx];
                 this.updateCoordsFromGcode(line);
 
-                const res = await this.sendGcodeLine(line);
+                let res = await this.sendGcodeLine(line);
+
+                // Nếu gặp error:9 (G-code locked out during alarm), tự động mở khóa $X và thử lại
+                if (!res.success && res.error && (res.error.includes("9") || res.error.toLowerCase().includes("alarm"))) {
+                    this.log(`⚠️ Máy bị khóa Alarm tại dòng ${this.currentLineIdx + 1}. Đang tự động gửi $X mở khóa...`, "warning");
+                    await this.sendRaw("$X\n");
+                    await new Promise(r => setTimeout(r, 300));
+                    res = await this.sendGcodeLine(line);
+                }
 
                 if (!res.success && res.error) {
-                    this.log(`⚠️ Lỗi tại dòng ${this.currentLineIdx + 1}: ${line} -> ${res.error}`, "warning");
+                    this.log(`⚠️ Phản hồi tại dòng ${this.currentLineIdx + 1}: ${line} -> ${res.error}`, "warning");
                 }
 
                 this.currentLineIdx++;
@@ -603,7 +666,7 @@ class GRBLController {
         if (!this.isStreaming || this.isPaused) return;
         this.isPaused = true;
         await this.sendRealtime("!"); // Feed hold tức thời
-        await this.sendRealtime("M5\r\n"); // Tắt tạm thời laser
+        await this.sendRaw("M5\n"); // Tắt tạm thời laser (chuẩn \n)
         this.startStatusPolling(); // Khôi phục polling theo dõi máy khi tạm dừng
         this.log("⏸️ Đã tạm dừng khắc.", "warning");
         this.notifyProgress();
@@ -615,7 +678,7 @@ class GRBLController {
     async resume() {
         if (!this.isStreaming || !this.isPaused) return;
         this.isPaused = false;
-        this.stopStatusPolling(); // Tắt polling để luồng khắc chạy liên tục
+        this.startStreamingStatusPolling(); // Polling nhẹ nhàng
         await this.sendRealtime("~"); // Cycle start tức thời
         this.log("▶️ Đang tiếp tục khắc...", "info");
         this.notifyProgress();
@@ -633,7 +696,7 @@ class GRBLController {
 
         // Gửi lệnh tắt laser tức thì M5 và soft reset \x18
         await this.sendRealtime("\x18"); // Ctrl+X soft reset
-        setTimeout(() => this.sendRealtime("M5\n"), 100);
+        setTimeout(() => this.sendRaw("M5\n"), 100);
 
         this.log("🛑 ĐÃ DỪNG KHẨN CẤP! Tia laser đã được tắt và lệnh khắc đã bị hủy.", "error");
         this.notifyProgress();
